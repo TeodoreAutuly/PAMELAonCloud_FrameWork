@@ -17,6 +17,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.openflexo.pamela.factory.ProxyMethodHandler;
+
+import javassist.util.proxy.ProxyObject;
+
 /**
  * Manages unique identifiers for PAMELA objects across distributed instances.
  * Each object gets a UUID that is stable across all replicas.
@@ -25,59 +29,92 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ObjectIdentityManager {
 
-	// Maps objects to their unique IDs
-	private final Map<Object, String> objectToId = new ConcurrentHashMap<>();
-
-	// Maps IDs back to objects
+	// Maps IDs to objects (for receiving remote operations)
 	private final Map<String, Object> idToObject = new ConcurrentHashMap<>();
 
 	/**
-	 * Register an object with a new generated UUID
-	 * 
+	 * Get the ProxyMethodHandler for a PAMELA object.
+	 *
+	 * @param object the PAMELA object
+	 * @return the handler, or null if not a PAMELA proxy
+	 */
+	private ProxyMethodHandler<?> getHandler(Object object) {
+		if (object instanceof ProxyObject) {
+			Object handler = ((ProxyObject) object).getHandler();
+			if (handler instanceof ProxyMethodHandler) {
+				return (ProxyMethodHandler<?>) handler;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Register an object with a new generated UUID.
+	 * The UUID is stored on the object's ProxyMethodHandler.
+	 *
 	 * @param object the object to register
 	 * @return the generated UUID
+	 * @throws IllegalArgumentException if object is not a PAMELA proxy
 	 */
 	public String registerObject(Object object) {
-		String existingId = objectToId.get(object);
+		// Check if already registered
+		String existingId = getObjectId(object);
 		if (existingId != null) {
 			return existingId;
 		}
 
+		// Get handler (must exist for PAMELA proxy)
+		ProxyMethodHandler<?> handler = getHandler(object);
+		if (handler == null) {
+			throw new IllegalArgumentException("Object must be a PAMELA proxy: " + object.getClass().getName());
+		}
+
+		// Generate new ID and store on handler
 		String newId = UUID.randomUUID().toString();
-		objectToId.put(object, newId);
+		handler.setSyncObjectId(newId);
 		idToObject.put(newId, object);
 		return newId;
 	}
 
 	/**
-	 * Register an object with a specific ID (used when receiving remote objects)
-	 * 
+	 * Register an object with a specific ID (used when receiving remote objects).
+	 * The UUID is stored on the object's ProxyMethodHandler.
+	 *
 	 * @param object the object to register
 	 * @param objectId the specific ID to use
+	 * @throws IllegalArgumentException if object is not a PAMELA proxy
 	 */
 	public void registerObject(Object object, String objectId) {
-		objectToId.put(object, objectId);
+		ProxyMethodHandler<?> handler = getHandler(object);
+		if (handler == null) {
+			throw new IllegalArgumentException("Object must be a PAMELA proxy: " + object.getClass().getName());
+		}
+
+		handler.setSyncObjectId(objectId);
 		idToObject.put(objectId, object);
 	}
 
 	/**
-	 * Get the ID for an object
-	 * 
+	 * Get the ID for an object.
+	 * Retrieves the ID directly from the object's ProxyMethodHandler.
+	 *
 	 * @param object the object
-	 * @return the object's ID, or null if not registered
+	 * @return the object's ID, or null if not registered or not a PAMELA proxy
 	 */
 	public String getObjectId(Object object) {
-		return objectToId.get(object);
+		ProxyMethodHandler<?> handler = getHandler(object);
+		return handler != null ? handler.getSyncObjectId() : null;
 	}
 
 	/**
-	 * Get the ID for an object, registering it if necessary
-	 * 
+	 * Get the ID for an object, registering it if necessary.
+	 *
 	 * @param object the object
 	 * @return the object's ID
+	 * @throws IllegalArgumentException if object is not a PAMELA proxy
 	 */
 	public String getOrCreateObjectId(Object object) {
-		String id = objectToId.get(object);
+		String id = getObjectId(object);
 		if (id == null) {
 			id = registerObject(object);
 		}
@@ -95,13 +132,13 @@ public class ObjectIdentityManager {
 	}
 
 	/**
-	 * Check if an object is registered
-	 * 
+	 * Check if an object is registered.
+	 *
 	 * @param object the object
 	 * @return true if registered
 	 */
 	public boolean isRegistered(Object object) {
-		return objectToId.containsKey(object);
+		return getObjectId(object) != null;
 	}
 
 	/**
@@ -120,9 +157,13 @@ public class ObjectIdentityManager {
 	 * @param object the object to unregister
 	 */
 	public void unregisterObject(Object object) {
-		String id = objectToId.remove(object);
-		if (id != null) {
-			idToObject.remove(id);
+		ProxyMethodHandler<?> handler = getHandler(object);
+		if (handler != null) {
+			String id = handler.getSyncObjectId();
+			if (id != null) {
+				idToObject.remove(id);
+				handler.setSyncObjectId(null);
+			}
 		}
 	}
 
@@ -134,7 +175,10 @@ public class ObjectIdentityManager {
 	public void unregisterById(String objectId) {
 		Object object = idToObject.remove(objectId);
 		if (object != null) {
-			objectToId.remove(object);
+			ProxyMethodHandler<?> handler = getHandler(object);
+			if (handler != null) {
+				handler.setSyncObjectId(null);
+			}
 		}
 	}
 
@@ -142,7 +186,12 @@ public class ObjectIdentityManager {
 	 * Clear all registrations
 	 */
 	public void clear() {
-		objectToId.clear();
+		for (Object object : idToObject.values()) {
+			ProxyMethodHandler<?> handler = getHandler(object);
+			if (handler != null) {
+				handler.setSyncObjectId(null);
+			}
+		}
 		idToObject.clear();
 	}
 
@@ -152,7 +201,7 @@ public class ObjectIdentityManager {
 	 * @return the count
 	 */
 	public int size() {
-		return objectToId.size();
+		return idToObject.size();
 	}
 
 	/**

@@ -168,6 +168,14 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	private PropertyChangeSupport propertyChangeSupport;
 	protected boolean initializing;
 
+	/**
+	 * Optional sync object ID for distributed synchronization.
+	 * Only set when object is registered with a SyncEditingContext.
+	 * This field is part of the sync module support but stored here
+	 * to allow O(1) lookup of object IDs without maintaining a separate map.
+	 */
+	private String syncObjectId;
+
 	private Map<String, PropertyImplementation<? super I, ?>> propertyImplementations;
 
 	private List<DelegateImplementation<? super I>> delegateImplementations;
@@ -222,6 +230,23 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 
 	public void setObject(I object) {
 		this.object = object;
+	}
+
+	/**
+	 * Get the sync object ID for distributed synchronization.
+	 * @return the sync object ID, or null if not registered for sync
+	 */
+	public String getSyncObjectId() {
+		return syncObjectId;
+	}
+
+	/**
+	 * Set the sync object ID for distributed synchronization.
+	 * Called by ObjectIdentityManager when registering an object.
+	 * @param syncObjectId the sync object ID
+	 */
+	public void setSyncObjectId(String syncObjectId) {
+		this.syncObjectId = syncObjectId;
 	}
 
 	public UndoManager getUndoManager() {
