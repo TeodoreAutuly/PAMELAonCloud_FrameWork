@@ -13,17 +13,18 @@
 
 package org.openflexo.pamela.sync;
 
-import org.openflexo.pamela.factory.EditingContextImpl;
-import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.factory.ProxyMethodHandler;
-import org.openflexo.pamela.model.ModelProperty;
-
+import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.openflexo.pamela.factory.EditingContextImpl;
+import org.openflexo.pamela.factory.PamelaModelFactory;
+import org.openflexo.pamela.factory.ProxyMethodHandler;
+import org.openflexo.pamela.model.ModelProperty;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -331,8 +332,31 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		}
 	}
 
+	/**
+	 * Receive the evt from RabbitMQSyncManager and redirect to the correct operation
+	 */
+	@Override
+	public void propertyChange(PropertyChangeEvent evt) {
+		String msg = evt.getPropertyName();
+		if(msg.equals("OPERATION_RECEIVED"))
+			onOperationReceived((SyncOperation)evt.getNewValue());
+		else if(msg.equals("CONNECTION"))
+			onConnected();
+		else if(msg.equals("DISCONNECTION"))
+			onDisconnected((String)evt.getNewValue());
+		else if(msg.equals("ERROR"))
+			onError((Throwable)evt.getNewValue());
+		else if(msg.equals("STATE_REQUEST"))
+			onStateRequested((String)evt.getNewValue());
+		else if(msg.equals("STATE_RECEIVED")) {
+			String value = (String)evt.getNewValue();
+			String stateSnapshot = value.split("FROM_REPLICA_ID")[0];
+			String fromReplicaId = value.split("FROM_REPLICA_ID")[1];
+			onStateReceived(stateSnapshot, fromReplicaId);
+		}
+	}
+	
 	// SyncOperationListener implementation
-
 	@Override
 	public void onOperationReceived(SyncOperation operation) {
 		logger.info(">>> Received operation: " + operation.getOperationType() 

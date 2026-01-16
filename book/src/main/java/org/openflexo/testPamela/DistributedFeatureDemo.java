@@ -26,6 +26,7 @@ import org.openflexo.pamela.sync.SyncOperationListener;
 import org.openflexo.testPamela.model.Book;
 import org.openflexo.testPamela.model.Library;
 
+import java.beans.PropertyChangeEvent;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -186,7 +187,7 @@ public class DistributedFeatureDemo {
                     case "quit":
                     case "exit":
                         System.out.println("[" + replicaName + "] Disconnecting...");
-                        syncManager.disconnect();
+                        syncManager.close();
                         System.out.println("[" + replicaName + "] Goodbye!");
                         return;
                         
@@ -506,6 +507,9 @@ public class DistributedFeatureDemo {
             public void onError(Throwable error) {
                 System.out.println("[" + replicaName + "] ❌ Error: " + error.getMessage());
             }
+
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {}
         };
     }
 

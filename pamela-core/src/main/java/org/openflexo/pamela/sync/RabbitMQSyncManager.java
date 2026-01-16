@@ -13,16 +13,20 @@
 
 package org.openflexo.pamela.sync;
 
-import com.rabbitmq.client.*;
-
+import java.beans.PropertyChangeSupport;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.BuiltinExchangeType;
+import com.rabbitmq.client.CancelCallback;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.DeliverCallback;
 
 /**
  * RabbitMQ-based synchronization manager for PAMELA collaborative editing.
@@ -59,8 +63,9 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	private String queueName;
 
 	// Listeners for received operations
-	private final List<SyncOperationListener> listeners = new CopyOnWriteArrayList<>();
-
+	//private final List<SyncOperationListener> listeners = new CopyOnWriteArrayList<>();
+	private final PropertyChangeSupport pcs;
+	
 	// Connection state
 	private volatile boolean connected = false;
 	private volatile boolean closing = false;
@@ -87,6 +92,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		this.useSsl = useSsl;
 		this.replicaId = UUID.randomUUID().toString();
 		this.vectorClock = new VectorClock();
+		this.pcs = new PropertyChangeSupport(this);
 	}
 
 	/**
@@ -186,13 +192,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 				}
 
 				// Notify listeners
-				for (SyncOperationListener listener : listeners) {
-					try {
-						listener.onOperationReceived(operation);
-					} catch (Exception e) {
-						logger.log(Level.SEVERE, "Error in operation listener", e);
-					}
-				}
+				pcs.firePropertyChange("OPERATION_RECEIVED", null, operation);
 
 			} catch (SyncOperationSerializer.SyncSerializationException e) {
 				logger.log(Level.SEVERE, "Failed to deserialize operation", e);
@@ -270,21 +270,22 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	 * Add a listener for synchronization operations
 	 */
 	public void addListener(SyncOperationListener listener) {
-		listeners.add(listener);
+		pcs.addPropertyChangeListener(listener);
 	}
 
 	/**
 	 * Remove a listener
 	 */
 	public void removeListener(SyncOperationListener listener) {
-		listeners.remove(listener);
+		pcs.removePropertyChangeListener(listener);
 	}
 
 	/**
 	 * Disconnect from RabbitMQ
 	 */
-	public void disconnect() {
-		if (!connected) {
+	@Override
+	public void close() {
+				if (!connected) {
 			return;
 		}
 
@@ -310,59 +311,24 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		notifyDisconnected("Manual disconnect");
 	}
 
-	@Override
-	public void close() {
-		disconnect();
-	}
-
 	private void notifyConnected() {
-		for (SyncOperationListener listener : listeners) {
-			try {
-				listener.onConnected();
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Error in connection listener", e);
-			}
-		}
+		pcs.firePropertyChange("CONNECTION", false, true);
 	}
 
 	private void notifyDisconnected(String reason) {
-		for (SyncOperationListener listener : listeners) {
-			try {
-				listener.onDisconnected(reason);
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Error in disconnection listener", e);
-			}
-		}
+		pcs.firePropertyChange("DISCONNECTION", null, reason);
 	}
 
 	private void notifyError(Throwable error) {
-		for (SyncOperationListener listener : listeners) {
-			try {
-				listener.onError(error);
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Error in error listener", e);
-			}
-		}
+		pcs.firePropertyChange("ERROR", null, error);
 	}
 
 	private void notifyStateRequested(String requestingReplicaId) {
-		for (SyncOperationListener listener : listeners) {
-			try {
-				listener.onStateRequested(requestingReplicaId);
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Error in state request listener", e);
-			}
-		}
+		pcs.firePropertyChange("STATE_REQUEST", null, requestingReplicaId);
 	}
 
 	private void notifyStateReceived(String stateSnapshot, String fromReplicaId) {
-		for (SyncOperationListener listener : listeners) {
-			try {
-				listener.onStateReceived(stateSnapshot, fromReplicaId);
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Error in state received listener", e);
-			}
-		}
+		pcs.firePropertyChange("STATE_RECEIVED", null, stateSnapshot + "FROM_REPLICA_ID" + fromReplicaId);
 	}
 
 	/**

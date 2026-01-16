@@ -21,6 +21,7 @@ import org.openflexo.pamela.sync.SyncOperationListener;
 import org.openflexo.testPamela.model.Book;
 import org.openflexo.testPamela.model.Library;
 
+import java.beans.PropertyChangeEvent;
 import java.util.Scanner;
 
 public class ReplicaB {
@@ -68,6 +69,9 @@ public class ReplicaB {
                 System.out.println("[B] Current library: " + library);
                 System.out.print("[B] > ");
             }
+
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {}
         });
 
         try {
@@ -150,7 +154,7 @@ public class ReplicaB {
         }
 
         System.out.println("[B] Disconnecting...");
-        syncManager.disconnect();
+        syncManager.close();
         System.out.println("[B] Goodbye!");
     }
 }
