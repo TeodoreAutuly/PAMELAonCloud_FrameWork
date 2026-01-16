@@ -17,6 +17,7 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.sync.SyncOperation.OperationType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -739,16 +740,22 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			// Object doesn't exist yet - try to create it first (might happen because of reordering operations)			
 			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
 		
-		try {
+		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
 			if (handler != null) {
 				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
 				if (property != null) {
-					Object newValue = valueSerializer.deserialize(
-							operation.getNewValueSerialized(),
+					String value; 
+					if(operation.getOperationType().equals(OperationType.REMOVE)){
+						value = operation.getOldValueSerialized(); 
+					}
+					else{value= operation.getNewValueSerialized();}
+					Object newValue = valueSerializer.deserialize(						
+							value,
 							property.getType(),
 							this
 					);
+
 					switch(operation.getOperationType()){
 						case SET:
 						handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
