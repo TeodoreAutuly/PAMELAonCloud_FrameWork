@@ -13,11 +13,6 @@
 
 package org.openflexo.pamela.sync;
 
-import org.openflexo.pamela.factory.EditingContextImpl;
-import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.factory.ProxyMethodHandler;
-import org.openflexo.pamela.model.ModelProperty;
-
 import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +20,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.openflexo.pamela.factory.EditingContextImpl;
+import org.openflexo.pamela.factory.PamelaModelFactory;
+import org.openflexo.pamela.factory.ProxyMethodHandler;
+import org.openflexo.pamela.model.ModelProperty;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
