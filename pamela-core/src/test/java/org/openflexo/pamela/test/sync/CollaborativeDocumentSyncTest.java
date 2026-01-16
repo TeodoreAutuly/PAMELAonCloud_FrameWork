@@ -13,18 +13,20 @@
 
 package org.openflexo.pamela.test.sync;
 
-import static org.junit.Assert.*;
-
+import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.sync.ObjectIdentityManager;
 import org.openflexo.pamela.sync.RabbitMQSyncManager;
 import org.openflexo.pamela.sync.SyncEditingContext;
 import org.openflexo.pamela.sync.SyncOperation;
@@ -107,10 +109,10 @@ public class CollaborativeDocumentSyncTest {
 	@After
 	public void tearDown() {
 		if (syncManagerA != null) {
-			syncManagerA.disconnect();
+			syncManagerA.close();
 		}
 		if (syncManagerB != null) {
-			syncManagerB.disconnect();
+			syncManagerB.close();
 		}
 	}
 
@@ -316,7 +318,7 @@ public class CollaborativeDocumentSyncTest {
 					.useSsl(USE_SSL)
 					.build();
 			testManager.connect();
-			testManager.disconnect();
+			testManager.close();
 			return true;
 		} catch (Exception e) {
 			return false;
@@ -358,6 +360,16 @@ public class CollaborativeDocumentSyncTest {
 		@Override
 		public void onError(Throwable e) {
 			System.err.println("  [Listener] Error: " + e.getMessage());
+		}
+
+		@Override
+		public void propertyChange(PropertyChangeEvent evt) {
+		
+			String msg = evt.getPropertyName();
+			if(msg.equals("OPERATION_RECEIVED"))
+				onOperationReceived((SyncOperation)evt.getNewValue());
+			System.out.println("  [Listener] PropertyChange detected : " + evt.getPropertyName());
+			System.out.println("  [Listener] PropertyChange detected : " + evt.getNewValue());
 		}
 	}
 }
