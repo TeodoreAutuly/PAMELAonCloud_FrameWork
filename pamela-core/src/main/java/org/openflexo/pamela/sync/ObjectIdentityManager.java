@@ -117,6 +117,10 @@ public class ObjectIdentityManager {
 		String id = getObjectId(object);
 		if (id == null) {
 			id = registerObject(object);
+		} else if (!idToObject.containsKey(id)) {
+			// Object already has an ID (from another manager or source) but is not
+			// registered with this manager - add it to our map
+			idToObject.put(id, object);
 		}
 		return id;
 	}

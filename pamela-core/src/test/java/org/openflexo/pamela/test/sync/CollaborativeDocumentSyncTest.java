@@ -285,9 +285,9 @@ public class CollaborativeDocumentSyncTest {
 		operationLatchB.await(5, TimeUnit.SECONDS);
 		assertEquals("Content from A", docB.getContent());
 
-		// Reset latch for next operation (expecting CREATE + SET from Replica B)
-		operationLatchB = new CountDownLatch(2);
-		latchA = new CountDownLatch(2);
+		// Reset latch for next operation (expecting only SET from Replica B since object already exists)
+		operationLatchB = new CountDownLatch(1);
+		latchA = new CountDownLatch(1);
 		syncManagerA.addListener(new TestOperationListener(null, latchA));
 		syncManagerB.addListener(new TestOperationListener(null, operationLatchB));
 
