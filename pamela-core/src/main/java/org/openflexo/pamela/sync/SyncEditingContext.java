@@ -17,6 +17,11 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.undo.AddCommand;
+import org.openflexo.pamela.undo.AtomicEdit;
+import org.openflexo.pamela.undo.CreateCommand;
+import org.openflexo.pamela.undo.DeleteCommand;
+import org.openflexo.pamela.undo.SetCommand;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,10 +41,17 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	private static final Logger logger = Logger.getLogger(SyncEditingContext.class.getName());
 
+	private final Map<String, RemoteOperationHandler> handlers = new ConcurrentHashMap<>();
+	private final Map<Class<? extends AtomicEdit>, LocalEditHandler> localEditHandlers = new ConcurrentHashMap<>();
 	private SyncManager syncManager;
 	private final ObjectIdentityManager identityManager;
 	private final SyncValueSerializer valueSerializer;
 	private PamelaModelFactory modelFactory;
+
+	@FunctionalInterface
+	public interface LocalEditHandler {
+		void handle(AtomicEdit<?> edit);
+	}
 
 	// Flag to prevent recursive sync when applying remote operations
 	private final ThreadLocal<Boolean> applyingRemoteOperation = ThreadLocal.withInitial(() -> false);
@@ -78,6 +90,167 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		registerDefaultHandlers();
+	}
+
+	public <T extends AtomicEdit<?>> void registerLocalHandler(Class<T> editClass, LocalEditHandler handler) {
+		if (editClass == null || handler == null) return;
+		localEditHandlers.put(editClass, handler);
+	}
+
+    private void registerDefaultHandlers() {
+        // Remote handlers (inbound)
+        handlers.put(SyncOperation.SET, this::applyRemoteSet);
+        handlers.put(SyncOperation.ADD, this::applyRemoteAdd);
+        handlers.put(SyncOperation.REMOVE, this::applyRemoteRemove);
+        handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
+		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
+
+
+        // Local handlers (outbound)
+           registerLocalHandler(SetCommand.class, edit -> {
+            try {
+                SetCommand<?> s = (SetCommand<?>) edit;
+                Object target = s.getObject();
+                ModelProperty<?> prop = resolveModelPropertyFromEdit(s, target);
+                Object oldVal = invokeIfExists(s, "getOldValue");
+                Object newVal = invokeIfExists(s, "getNewValue");
+                if (prop != null) {
+                    broadcastSetRaw(target, prop, oldVal, newVal);
+                } else {
+                    logger.fine("No ModelProperty resolved for SetCommand, skipping broadcast");
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Local SetCommand handler failed", e);
+            }
+        });
+
+        registerLocalHandler(AddCommand.class, edit -> {
+            try {
+                AddCommand<?> a = (AddCommand<?>) edit;
+                Object target = a.getObject();
+                ModelProperty<?> prop = resolveModelPropertyFromEdit(a, target);
+                Object added = invokeIfExists(a, "getAddedElement");
+                Integer index = null;
+                Object idxObj = invokeIfExists(a, "getIndex");
+                if (idxObj instanceof Integer) index = (Integer) idxObj;
+                if (prop != null) {
+                    broadcastAddRaw(target, prop, added, index != null ? index : -1);
+                } else {
+                    logger.fine("No ModelProperty resolved for AddCommand, skipping broadcast");
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Local AddCommand handler failed", e);
+            }
+        });
+
+        registerLocalHandler(CreateCommand.class, edit -> {
+            try {
+                Object target = edit.getObject();
+                String entityType = getEntityTypeName(target);
+                broadcastCreate(target, entityType);
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Local CreateCommand handler failed", e);
+            }
+        });
+
+		registerLocalHandler(DeleteCommand.class, edit -> {
+            broadcastDelete(edit.getObject());
+        });
+    }
+
+	@SuppressWarnings("unchecked")
+    private void broadcastSetRaw(Object object, ModelProperty<?> property, Object oldValue, Object newValue) {
+        broadcastSet((Object) object, (ModelProperty<? super Object>) property, oldValue, newValue);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void broadcastAddRaw(Object object, ModelProperty<?> property, Object addedValue, int index) {
+        broadcastAdd((Object) object, (ModelProperty<? super Object>) property, addedValue, index);
+    }
+
+    // Helper: try to call a no-arg method by name and return result, or null if not present/failed
+    private Object invokeIfExists(Object target, String methodName) {
+        try {
+            java.lang.reflect.Method m = target.getClass().getMethod(methodName);
+            return m.invoke(target);
+        } catch (NoSuchMethodException ns) {
+            return null;
+        } catch (Exception e) {
+            logger.log(Level.FINE, "Reflection call failed for " + methodName + " on " + target.getClass(), e);
+            return null;
+        }
+    }
+
+    // Helper: resolve ModelProperty from an AtomicEdit using either a property object or a property identifier exposed by the edit.
+    private ModelProperty<?> resolveModelPropertyFromEdit(AtomicEdit<?> edit, Object targetObject) {
+        if (targetObject == null || modelFactory == null) return null;
+        try {
+            // Try direct getProperty() returning a ModelProperty (if present)
+            try {
+                java.lang.reflect.Method mProp = edit.getClass().getMethod("getProperty");
+                Object propObj = mProp.invoke(edit);
+                if (propObj instanceof ModelProperty) {
+                    return (ModelProperty<?>) propObj;
+                }
+            } catch (NoSuchMethodException ignored) {}
+
+            // Try getPropertyIdentifier() or getPropertyName()
+            String propId = null;
+            try {
+                java.lang.reflect.Method mId = edit.getClass().getMethod("getPropertyIdentifier");
+                propId = (String) mId.invoke(edit);
+            } catch (NoSuchMethodException ignored) {
+                try {
+                    java.lang.reflect.Method mName = edit.getClass().getMethod("getPropertyName");
+                    propId = (String) mName.invoke(edit);
+                } catch (NoSuchMethodException ignored2) {}
+            }
+
+            if (propId != null) {
+                ProxyMethodHandler<?> handler = modelFactory.getHandler(targetObject);
+                if (handler != null) {
+                    return handler.getModelEntity().getModelProperty(propId);
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.FINE, "Failed to resolve ModelProperty from edit: " + edit.getClass(), e);
+        }
+        return null;
+    }
+
+    /**
+     * Permet d'ajouter une nouvelle opération (ex: "REINDEX") au runtime
+     */
+    public void registerHandler(String type, RemoteOperationHandler handler) {
+        handlers.put(type, handler);
+    }
+
+	private void dispatchLocalEditToCloud(AtomicEdit<?> edit) {
+		if (edit == null) return;
+		LocalEditHandler handler = findLocalHandlerFor(edit.getClass());
+		if (handler != null) {
+			try {
+				handler.handle(edit);
+			} catch (Exception e) {
+				logger.log(Level.WARNING, "Local edit handler threw exception for " + edit.getClass(), e);
+			}
+		} else {
+			logger.fine("No local handler registered for edit type: " + edit.getClass().getName());
+		}
+	}
+
+	private LocalEditHandler findLocalHandlerFor(Class<? extends AtomicEdit> cls) {
+		// Exact match first
+		LocalEditHandler h = localEditHandlers.get(cls);
+		if (h != null) return h;
+		// Then try assignable matches (allows registering handlers for supertypes)
+		for (Map.Entry<Class<? extends AtomicEdit>, LocalEditHandler> e : localEditHandlers.entrySet()) {
+			if (e.getKey().isAssignableFrom(cls)) {
+				return e.getValue();
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -165,7 +338,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 			String objectId = identityManager.getOrCreateObjectId(object);
 			String entityType = getEntityTypeName(object);
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.SET)
+			SyncOperation operation = new SyncOperation.Builder(SyncOperation.SET)
 					.replicaId(syncManager.getReplicaId())
 					.objectId(objectId)
 					.entityType(entityType)
@@ -211,7 +384,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 				serializedValue = valueSerializer.serialize(addedValue);
 			}
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.ADD)
+			SyncOperation operation = new SyncOperation.Builder(SyncOperation.ADD)
 					.replicaId(syncManager.getReplicaId())
 					.objectId(objectId)
 					.entityType(entityType)
@@ -248,7 +421,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 				serializedValue = valueSerializer.serialize(removedValue);
 			}
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.REMOVE)
+			SyncOperation operation = new SyncOperation.Builder(SyncOperation.REMOVE)
 					.replicaId(syncManager.getReplicaId())
 					.objectId(objectId)
 					.entityType(entityType)
@@ -275,7 +448,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		try {
 			String objectId = identityManager.getOrCreateObjectId(object);
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
+			SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
 					.replicaId(syncManager.getReplicaId())
 					.objectId(objectId)
 					.entityType(entityType)
@@ -318,7 +491,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 			String entityType = getEntityTypeName(object);
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.DELETE)
+			SyncOperation operation = new SyncOperation.Builder(SyncOperation.DELETE)
 					.replicaId(syncManager.getReplicaId())
 					.objectId(objectId)
 					.entityType(entityType)
@@ -334,43 +507,25 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	// SyncOperationListener implementation
 
 	@Override
-	public void onOperationReceived(SyncOperation operation) {
-		logger.info(">>> Received operation: " + operation.getOperationType() 
-				+ " objectId=" + operation.getObjectId() 
-				+ " property=" + operation.getPropertyIdentifier());
+    public void onOperationReceived(SyncOperation operation) {
+        if (modelFactory == null) return;
 
-		if (modelFactory == null) {
-			logger.warning("ModelFactory not set, cannot apply remote operation");
-			return;
-		}
-
-		applyingRemoteOperation.set(true);
-		try {
-			switch (operation.getOperationType()) {
-				case SET:
-					applyRemoteSet(operation);
-					break;
-				case ADD:
-					applyRemoteAdd(operation);
-					break;
-				case REMOVE:
-					applyRemoteRemove(operation);
-					break;
-				case CREATE:
-					applyRemoteCreate(operation);
-					break;
-				case DELETE:
-					applyRemoteDelete(operation);
-					break;
-				default:
-					logger.warning("Unknown operation type: " + operation.getOperationType());
-			}
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote operation: " + operation, e);
-		} finally {
-			applyingRemoteOperation.set(false);
-		}
-	}
+        applyingRemoteOperation.set(true);
+        try {
+            String type = operation.getOperationType();
+            
+            // DYNAMISME : On cherche le handler dans la Map au lieu d'un switch
+            RemoteOperationHandler handler = handlers.get(type);
+            
+            if (handler != null) {
+                handler.handle(operation);
+            } else {
+                logger.warning("Aucun handler trouvé pour l'opération : " + type);
+            }
+        } finally {
+            applyingRemoteOperation.set(false);
+        }
+    }
 
 	@Override
 	public void onConnected() {
