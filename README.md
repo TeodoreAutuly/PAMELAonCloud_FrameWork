@@ -31,3 +31,6 @@ Then run the Book example with the following command:
 ```bash
 .\gradlew.bat :book:runDemo --console=plain
 ```
+```bash
+.\gradlew.bat :book:runDemoMQTT --console=plain
+```

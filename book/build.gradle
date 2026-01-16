@@ -77,3 +77,12 @@ task runDemo(type: JavaExec) {
     mainClass = 'org.openflexo.testPamela.DistributedFeatureDemo'
     standardInput = System.in
 }
+
+// Task to run the Distributed Feature Demo
+task runDemoMQTT(type: JavaExec) {
+    group = 'application'
+    description = 'Run the distributed features demonstration'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.openflexo.testPamela.DistributedFeatureDemoMQTT'
+    standardInput = System.in
+}
