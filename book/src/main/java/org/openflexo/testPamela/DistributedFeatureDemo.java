@@ -194,6 +194,19 @@ public class DistributedFeatureDemo {
                         runFullDemo();
                         break;
                         
+                    case "disconnect":
+                        System.out.println("[" + replicaName + "] Disconnecting from sync network...");
+                        syncManager.disconnect();
+                        System.out.println("[" + replicaName + "] ✓ Disconnected. You can now work offline.");
+                        break;
+                        
+                    case "reconnect":
+                        System.out.println("[" + replicaName + "] Reconnecting to sync network...");
+                        syncManager.connect();
+                        syncContext.requestStateSync();
+                        System.out.println("[" + replicaName + "] ✓ Reconnected and recovering remote state.");
+                        break;
+                        
                     default:
                         System.out.println("Unknown command. Type 'help' for available commands.");
                 }
@@ -431,6 +444,8 @@ public class DistributedFeatureDemo {
         System.out.println("║  move <title> <index> - Reorder book (tests REINDEX)          ║");
         System.out.println("║  list                 - Show all books                        ║");
         System.out.println("║  state                - Request state from replicas           ║");
+        System.out.println("║  disconnect           - Go offline (work locally)             ║");
+        System.out.println("║  reconnect            - Reconnect and recover remote state    ║");
         System.out.println("║  info                 - Show sync information                 ║");
         System.out.println("║  demo                 - Run full feature demonstration        ║");
         System.out.println("║  quit                 - Exit                                  ║");
@@ -463,14 +478,14 @@ public class DistributedFeatureDemo {
             public void onOperationReceived(SyncOperation operation) {
                 System.out.println();
                 System.out.println("[" + replicaName + "] 📥 RECEIVED: " + operation.getOperationType());
-                System.out.println("    Object:   " + operation.getObjectId().substring(0, 8) + "...");
+                System.out.println("    Object:   " + truncateId(operation.getObjectId()));
                 if (operation.getPropertyIdentifier() != null) {
                     System.out.println("    Property: " + operation.getPropertyIdentifier());
                 }
                 if (operation.getNewValueSerialized() != null) {
                     System.out.println("    Value:    " + truncate(operation.getNewValueSerialized(), 40));
                 }
-                System.out.println("    From:     " + operation.getReplicaId().substring(0, 8) + "...");
+                System.out.println("    From:     " + truncateId(operation.getReplicaId()));
                 System.out.print("[" + replicaName + "] > ");
             }
 
@@ -513,5 +528,10 @@ public class DistributedFeatureDemo {
         if (str == null) return "";
         if (str.length() <= maxLen) return str;
         return str.substring(0, maxLen - 3) + "...";
+    }
+
+    private static String truncateId(String id) {
+        if (id == null) return "???";
+        return truncate(id, 11); // 8 chars + "..."
     }
 }
