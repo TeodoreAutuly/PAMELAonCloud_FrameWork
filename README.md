@@ -31,3 +31,9 @@ Then run the Book example with the following command:
 ```bash
 .\gradlew.bat :book:runDemo --console=plain
 ```
+
+To run the tests, please run: 
+
+'''bash
+.\gradlew :pamela-core:test
+'''
