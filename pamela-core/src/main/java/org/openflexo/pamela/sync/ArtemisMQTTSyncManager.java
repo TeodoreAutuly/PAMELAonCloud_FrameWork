@@ -86,8 +86,9 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         mqttOptions = new MqttConnectOptions();
         mqttOptions.setAutomaticReconnect(true);
         mqttOptions.setCleanSession(true);
-        mqttOptions.setPassword(password.toCharArray());
         mqttOptions.setUserName(username);
+        mqttOptions.setPassword(password.toCharArray());
+        
         
         System.out.println("coucou");
 
