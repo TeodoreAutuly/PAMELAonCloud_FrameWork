@@ -220,7 +220,7 @@ public class CollaborativeDocumentSyncTest {
 	 * Test that adding items to a list on Replica A propagates to Replica B.
 	 */
 	@Test
-	public void testAdderPropagation() throws Exception {
+	public void testAdderPropagation() throws Exception {	
 		if (!isRabbitMQAvailable()) {
 			System.out.println("SKIPPING TEST: RabbitMQ not available");
 			return;

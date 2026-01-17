@@ -67,6 +67,7 @@ import org.openflexo.pamela.model.ModelProperty;
 import org.openflexo.pamela.model.StringConverterLibrary.Converter;
 import org.openflexo.pamela.undo.CreateCommand;
 import org.openflexo.pamela.sync.SyncEditingContext;
+import org.openflexo.pamela.sync.SyncOperation;
 import org.openflexo.pamela.xml.XMLSaxDeserializer;
 import org.openflexo.pamela.xml.XMLSerializer;
 
@@ -467,8 +468,9 @@ public class PamelaModelFactory {
 					SyncEditingContext syncContext = (SyncEditingContext) getEditingContext();
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
-						if (handler != null) {
-							handler.broadcastCreateOperation();
+						if (handler != null) {							
+							handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.ADD);
+
 						}
 					}
 				}
@@ -528,7 +530,8 @@ public class PamelaModelFactory {
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
 						if (handler != null) {
-							handler.broadcastCreateOperation();
+							handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.ADD);
+;
 						}
 					}
 				}
