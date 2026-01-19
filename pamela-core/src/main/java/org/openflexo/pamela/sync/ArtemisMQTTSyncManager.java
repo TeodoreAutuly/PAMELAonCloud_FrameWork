@@ -1,14 +1,16 @@
 package org.openflexo.pamela.sync;
 
-import org.eclipse.paho.client.mqttv3.*;
-import org.openflexo.pamela.sync.RabbitMQSyncManager.Builder;
-
-import java.io.IOException;
-import java.util.List;
+import java.beans.PropertyChangeSupport;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
 
 /**
  * MQTT based synchronization manager for PAMELA collaborative editing.
@@ -33,7 +35,7 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
     private MqttClient mqttClient;
     private MqttConnectOptions mqttOptions;
 
-    private final List<SyncOperationListener> listeners = new CopyOnWriteArrayList<>();
+	private final PropertyChangeSupport pcs;
 
     private volatile boolean connected = false;
     private volatile boolean closing = false;
@@ -54,6 +56,7 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         this.replicaId = UUID.randomUUID().toString();
         this.vectorClock = new VectorClock();
         this.mqttTopic = exchangeName + "/" + routingKey;
+		this.pcs = new PropertyChangeSupport(this);
     }
 
     public String getReplicaId() {
@@ -139,13 +142,11 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         			}
 
                     // Notify listeners
-        			for (SyncOperationListener listener : listeners) {
-        				try {
-        					listener.onOperationReceived(operation);
-        				} catch (Exception e) {
-        					logger.log(Level.SEVERE, "Error in operation listener", e);
-        				}
-        			}
+    				try {
+    					pcs.firePropertyChange("OPERATION_RECEIVED", null, operation);
+    				} catch (Exception e) {
+    					logger.log(Level.SEVERE, "Error in operation listener", e);
+    				}
 
                 } catch (SyncOperationSerializer.SyncSerializationException e) {
         			logger.log(Level.SEVERE, "Failed to deserialize operation", e);
@@ -156,7 +157,11 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         });
         
         System.out.println("coucou1");
-        mqttClient.connect(mqttOptions);
+        try {
+            mqttClient.connect(mqttOptions);
+        } catch (Exception e) {
+            System.err.println(e);
+        }
         System.out.println("coucou2");
         mqttClient.subscribe(mqttTopic, 1);
         System.out.println("coucou3");
@@ -291,14 +296,14 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
 	 * Add a listener for synchronization operations
 	 */
     public void addListener(SyncOperationListener listener) {
-        listeners.add(listener);
+		pcs.addPropertyChangeListener(listener);
     }
     
     /**
 	 * Remove a listener
 	 */
     public void removeListener(SyncOperationListener listener) {
-        listeners.remove(listener);
+        pcs.removePropertyChangeListener(listener);
     }
     
     /**
@@ -331,52 +336,44 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
     }
 
     private void notifyConnected() {
-        for (SyncOperationListener listener : listeners) {
-            try {
-                listener.onConnected();
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error in connection listener", e);
-            }
+        try {
+    		pcs.firePropertyChange("CONNECTION", false, true);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in connection listener", e);
         }
     }
 
     private void notifyDisconnected(String reason) {
-        for (SyncOperationListener listener : listeners) {
-            try {
-                listener.onDisconnected(reason);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error in disconnection listener", e);
-            }
+        try {
+    		pcs.firePropertyChange("DISCONNECTION", null, reason);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in disconnection listener", e);
         }
+        
     }
 
     private void notifyError(Throwable error) {
-        for (SyncOperationListener listener : listeners) {
-            try {
-                listener.onError(error);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error in error listener", e);
-            }
+        try {
+    		pcs.firePropertyChange("ERROR", null, error);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in error listener", e);
         }
+        
     }
 
     private void notifyStateRequested(String requestingReplicaId) {
-        for (SyncOperationListener listener : listeners) {
-            try {
-                listener.onStateRequested(requestingReplicaId);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error in state request listener", e);
-            }
+        try {
+    		pcs.firePropertyChange("STATE_REQUEST", null, requestingReplicaId);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in state request listener", e);
         }
     }
 
     private void notifyStateReceived(String stateSnapshot, String fromReplicaId) {
-        for (SyncOperationListener listener : listeners) {
-            try {
-                listener.onStateReceived(stateSnapshot, fromReplicaId);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Error in state received listener", e);
-            }
+        try {
+    		pcs.firePropertyChange("STATE_RECEIVED", null, stateSnapshot + "FROM_REPLICA_ID" + fromReplicaId);
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Error in state received listener", e);
         }
     }
     

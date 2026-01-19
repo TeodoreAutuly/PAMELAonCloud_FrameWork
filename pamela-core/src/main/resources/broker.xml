@@ -9,7 +9,6 @@
          <acceptor name="mqtt">tcp://127.0.0.1:1883?protocols=MQTT</acceptor>
       </acceptors>
    </core>
-   
    <security-settings>
     <security-setting match="#">
         <permission type="send" roles="user"/>

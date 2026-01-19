@@ -1,18 +1,14 @@
 package org.openflexo.pamela.sync;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.net.URL;
 import java.io.File;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.io.File;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-import org.apache.activemq.artemis.core.config.Configuration;
-import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
 import org.apache.activemq.artemis.core.server.embedded.EmbeddedActiveMQ;
-import org.apache.activemq.artemis.core.remoting.impl.netty.NettyAcceptorFactory;
 
 public class ArtemisEmbeddedMQTTBroker {
 	private static final Logger logger = Logger.getLogger(ArtemisEmbeddedMQTTBroker.class.getName());
@@ -43,10 +39,10 @@ public class ArtemisEmbeddedMQTTBroker {
             Files.copy(in, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             embeddedBroker.setConfigResourcePath("file:///" + tempFile.getAbsolutePath().replace("\\", "/"));
             //embeddedBroker.setConfigResourcePath(configUrl.toString());
-            
+
     		embeddedBroker.start();
     		started = true;
-    		logger.info("Broker started");;
+    		logger.info("Broker started");
     	} catch (Exception e) {
     		logger.log(Level.SEVERE, "Failed to start broker", e);
     	}
