@@ -107,7 +107,25 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
 
 
-        // Local handlers (outbound)
+		 handlers.put(SyncOperation.STATE_REQUEST, operation -> {
+           try {
+                // caller requests state; pass requesting replica id
+               onStateRequested(operation.getReplicaId());
+           } catch (Exception e) {
+               logger.log(Level.WARNING, "Failed to handle STATE_REQUEST", e);
+           }
+       });
+
+       handlers.put(SyncOperation.STATE_RESPONSE, operation -> {
+           try {
+               // STATE_RESPONSE carries the serialized snapshot
+               onStateReceived(operation.getNewValueSerialized(), operation.getReplicaId());
+           } catch (Exception e) {
+               logger.log(Level.WARNING, "Failed to handle STATE_RESPONSE", e);
+           }
+       });
+	   
+       // Local handlers (outbound)
            registerLocalHandler(SetCommand.class, edit -> {
             try {
                 SetCommand<?> s = (SetCommand<?>) edit;
@@ -220,7 +238,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
     }
 
     /**
-     * Permet d'ajouter une nouvelle opération (ex: "REINDEX") au runtime
+	 * Add new operation at runtime 
      */
     public void registerHandler(String type, RemoteOperationHandler handler) {
         handlers.put(type, handler);
