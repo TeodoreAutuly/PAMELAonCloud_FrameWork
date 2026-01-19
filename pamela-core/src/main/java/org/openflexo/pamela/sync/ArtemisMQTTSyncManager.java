@@ -89,8 +89,9 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         mqttOptions = new MqttConnectOptions();
         mqttOptions.setAutomaticReconnect(true);
         mqttOptions.setCleanSession(true);
-        mqttOptions.setPassword(password.toCharArray());
         mqttOptions.setUserName(username);
+        mqttOptions.setPassword(password.toCharArray());
+        
         
         System.out.println("coucou");
 
@@ -157,11 +158,7 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         });
         
         System.out.println("coucou1");
-        try {
-            mqttClient.connect(mqttOptions);
-        } catch (Exception e) {
-            System.err.println(e);
-        }
+        mqttClient.connect(mqttOptions);
         System.out.println("coucou2");
         mqttClient.subscribe(mqttTopic, 1);
         System.out.println("coucou3");
