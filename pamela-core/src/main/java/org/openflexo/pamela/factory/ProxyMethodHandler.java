@@ -123,6 +123,7 @@ import org.openflexo.pamela.undo.RemoveCommand;
 import org.openflexo.pamela.undo.SetCommand;
 import org.openflexo.pamela.undo.UndoManager;
 import org.openflexo.pamela.sync.SyncEditingContext;
+import org.openflexo.pamela.sync.SyncOperation;
 import org.openflexo.toolbox.HasPropertyChangeSupport;
 
 import com.google.common.base.Defaults;
@@ -1105,12 +1106,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 
 		// Broadcast delete operation to other replicas
 		if (trackAtomicEdit) {
-			broadcastDeleteOperation();
-		}
-
-		// Broadcast delete operation to other replicas
-		if (trackAtomicEdit) {
-			broadcastDeleteOperation();
+			broadcastOperation(null, null, null, -1, SyncOperation.OperationType.DELETE);
+;
 		}
 
 		deleted = true;
@@ -1471,7 +1468,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit && oldValue != value) {
-			broadcastSetOperation(property, oldValue, value);
+			broadcastOperation(property, oldValue, value, -1, SyncOperation.OperationType.SET);
 		}
 	}
 
@@ -1496,7 +1493,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
-			broadcastAddOperation(property, value, index);
+			System.out.println("I'm attempting to make an add broadcast");
+			broadcastOperation(property, null, value, index, SyncOperation.OperationType.ADD); 			
 		}
 	}
 
@@ -1510,7 +1508,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
-			broadcastRemoveOperation(property, value);
+			broadcastOperation(property, value, null, -1, SyncOperation.OperationType.REMOVE);		
 		}
 	}
 
@@ -2727,53 +2725,14 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	}
 
 	/**
-	 * Broadcast a SET operation to other replicas
+	 * Broadcast an operation to other replicas
 	 */
-	private void broadcastSetOperation(ModelProperty<? super I> property, Object oldValue, Object newValue) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
+
+	public void broadcastOperation(ModelProperty<? super I> property, Object oldValue, Object newValue, int index, SyncOperation.OperationType operationType){
+	SyncEditingContext syncCtx = getSyncEditingContext();
+	
 		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastSet(getObject(), property, oldValue, newValue);
+			syncCtx.broadcast(getObject(), property, oldValue, newValue,index, operationType);
 		}
 	}
-
-	/**
-	 * Broadcast an ADD operation to other replicas
-	 */
-	private void broadcastAddOperation(ModelProperty<? super I> property, Object addedValue, int index) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastAdd(getObject(), property, addedValue, index);
-		}
-	}
-
-	/**
-	 * Broadcast a REMOVE operation to other replicas
-	 */
-	private void broadcastRemoveOperation(ModelProperty<? super I> property, Object removedValue) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastRemove(getObject(), property, removedValue);
-		}
-	}
-
-	/**
-	 * Broadcast a DELETE operation to other replicas
-	 */
-	public void broadcastDeleteOperation() {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastDelete(getObject());
-		}
-	}
-
-	/**
-	 * Broadcast a CREATE operation to other replicas
-	 */
-	public void broadcastCreateOperation() {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastCreate(getObject(), getModelEntity().getImplementedInterface().getName());
-		}
-	}
-
 }
