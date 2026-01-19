@@ -34,6 +34,6 @@ Then run the Book example with the following command:
 
 To run the tests, please run: 
 
-'''bash
+```bash
 .\gradlew :pamela-core:test
-'''
+```
