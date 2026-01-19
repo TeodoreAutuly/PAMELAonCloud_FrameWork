@@ -12,7 +12,6 @@
  */
 
 package org.openflexo.pamela.sync;
-
 import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +43,11 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	// Flag to prevent recursive sync when applying remote operations
 	private final ThreadLocal<Boolean> applyingRemoteOperation = ThreadLocal.withInitial(() -> false);
-	
+
+	// Stores the replicaId of the remote operation currently being applied
+	// Used by ProxyMethodHandler.getCurrentReplicaId() to tag AtomicEdits with the correct replicaId
+	private final ThreadLocal<String> currentRemoteReplicaId = new ThreadLocal<>();
+
 	// Buffer for operations during object creation (ensures CREATE is sent before SETs)
 	// Key: objectId, Value: list of buffered operations
 	private final Map<String, List<SyncOperation>> pendingOperations = new ConcurrentHashMap<>();
@@ -140,6 +143,20 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	}
 
 	/**
+	 * Get the replicaId of the operation currently being processed.
+	 * If applying a remote operation, returns the remote replica's ID.
+	 * Otherwise, returns the local replica's ID.
+	 * This is used by ProxyMethodHandler to tag AtomicEdits with the correct replicaId.
+	 */
+	public String getCurrentOperationReplicaId() {
+		String remoteId = currentRemoteReplicaId.get();
+		if (remoteId != null) {
+			return remoteId;
+		}
+		return getReplicaId();
+	}
+
+	/**
 	 * Get the interface name for a PAMELA object.
 	 * Returns the implemented interface name (e.g., "org.example.Book") instead of
 	 * the proxy class name (e.g., "Book$BookImpl_$$_jvst806_1").
@@ -154,182 +171,63 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		return object.getClass().getName();
 	}
 
-	/**
-	 * Broadcast a SET operation
-	 */
-	public <I> void broadcastSet(I object, ModelProperty<? super I> property, Object oldValue, Object newValue) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
+public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldValue,Object newValue,int index,SyncOperation.OperationType operationType){
+	if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
+        return;
+    }
+	try{ 
+		String objectId = identityManager.getOrCreateObjectId(object);
+        String entityType = getEntityTypeName(object);
+		 SyncOperation.Builder builder = new SyncOperation.Builder(operationType)
+                .replicaId(syncManager.getReplicaId())
+                .objectId(objectId)
+                .entityType(entityType);
 
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
+		if (property != null) {
+            builder.propertyIdentifier(property.getPropertyIdentifier())
+                   .valueType(property.getType().getName());
+        }
 
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.SET)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.oldValue(valueSerializer.serialize(oldValue))
-					.newValue(valueSerializer.serialize(newValue))
-					.valueType(property.getType().getName())
-					.build();
+		      // Serialize oldValue if relevant (remove and set)
+        if (oldValue != null && (operationType == SyncOperation.OperationType.SET
+                || operationType == SyncOperation.OperationType.REMOVE)) {
 
-			// Check if CREATE has been sent for this object - if not, buffer the operation
-			if (!createdObjects.containsKey(objectId)) {
-				// Buffer the operation to be sent after CREATE
-				pendingOperations.computeIfAbsent(objectId, k -> new ArrayList<>()).add(operation);
-				logger.fine("Buffered SET operation for object not yet created: " + objectId);
-			} else {
-				syncManager.publishOperation(operation);
-			}
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast SET operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast an ADD operation
-	 */
-	public <I> void broadcastAdd(I object, ModelProperty<? super I> property, Object addedValue, int index) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
-
-			// For PAMELA objects, use reference serialization
-			String serializedValue;
-			if (addedValue != null && modelFactory != null && modelFactory.isProxyObject(addedValue)) {
-				// Ensure added object is registered and use reference
-				identityManager.getOrCreateObjectId(addedValue);
-				serializedValue = valueSerializer.serializeReference(addedValue, identityManager);
-			} else {
-				serializedValue = valueSerializer.serialize(addedValue);
-			}
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.ADD)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.newValue(serializedValue)
-					.valueType(property.getType().getName())
-					.index(index)
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast ADD operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast a REMOVE operation
-	 */
-	public <I> void broadcastRemove(I object, ModelProperty<? super I> property, Object removedValue) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
-
-			// For PAMELA objects, use reference serialization
-			String serializedValue;
-			if (removedValue != null && modelFactory != null && modelFactory.isProxyObject(removedValue)) {
-				serializedValue = valueSerializer.serializeReference(removedValue, identityManager);
-			} else {
-				serializedValue = valueSerializer.serialize(removedValue);
-			}
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.REMOVE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.oldValue(serializedValue)
-					.valueType(property.getType().getName())
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast REMOVE operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast a CREATE operation
-	 */
-	public <I> void broadcastCreate(I object, String entityType) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.build();
-
-			// Send CREATE first
-			syncManager.publishOperation(operation);
+            String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
+                                   ? valueSerializer.serializeReference(oldValue, identityManager)
+                                   : valueSerializer.serialize(oldValue);
+            builder.oldValue(serializedOld);
+        }
 			
-			// Mark object as created
-			createdObjects.put(objectId, Boolean.TRUE);
+        // Serialize newValue if relevant (add and set)
+		    if (newValue != null && (operationType == SyncOperation.OperationType.SET
+                || operationType == SyncOperation.OperationType.ADD)) {
+            String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
+                                   ? valueSerializer.serializeReference(newValue, identityManager)
+                                   : valueSerializer.serialize(newValue);
+            builder.newValue(serializedNew);
+        }
+		 // Index for ADD/REINDEX
+		if (operationType == SyncOperation.OperationType.ADD || operationType == SyncOperation.OperationType.REINDEX) {
+            builder.index(index);
+        }
+		SyncOperation operation = builder.build();
+		syncManager.publishOperation(operation);
+		if(operationType ==SyncOperation.OperationType.CREATE){
+		createdObjects.put(objectId, Boolean.TRUE);
 			
-			// Then send any buffered operations for this object
-			List<SyncOperation> buffered = pendingOperations.remove(objectId);
-			if (buffered != null) {
-				for (SyncOperation bufferedOp : buffered) {
-					syncManager.publishOperation(bufferedOp);
-				}
-				logger.fine("Sent " + buffered.size() + " buffered operations for: " + objectId);
+		// Then send any buffered operations for this object
+		List<SyncOperation> buffered = pendingOperations.remove(objectId);
+		if (buffered != null) {
+			for (SyncOperation bufferedOp : buffered) {
+				syncManager.publishOperation(bufferedOp);
 			}
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast CREATE operation", e);
+			logger.fine("Sent " + buffered.size() + " buffered operations for: " + objectId);
 		}
+
 	}
-
-	/**
-	 * Broadcast a DELETE operation
-	 */
-	public <I> void broadcastDelete(I object) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getObjectId(object);
-			if (objectId == null) {
-				logger.warning("Cannot broadcast delete for unregistered object");
-				return;
-			}
-
-			String entityType = getEntityTypeName(object);
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.DELETE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast DELETE operation", e);
-		}
+	} catch (Exception e) {
+	        logger.log(Level.SEVERE, "Failed to broadcast " + operationType + " operation", e);
+	    }
 	}
 
 	/**
@@ -369,8 +267,9 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		}
 
 		applyingRemoteOperation.set(true);
+		currentRemoteReplicaId.set(operation.getReplicaId());
 		try {
-			switch (operation.getOperationType()) {			
+			switch (operation.getOperationType()) {
 				case CREATE:
 					applyRemoteCreate(operation);
 					break;
@@ -379,7 +278,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 					break;
 				case SET: case ADD: case REMOVE:
 					applyRemoteModification(operation);
-					break;				
+					break;
 				default:
 					logger.warning("Unknown operation type: " + operation.getOperationType());
 			}
@@ -387,6 +286,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 			logger.log(Level.SEVERE, "Failed to apply remote operation: " + operation, e);
 		} finally {
 			applyingRemoteOperation.set(false);
+			currentRemoteReplicaId.remove();
 		}
 	}
 
@@ -429,14 +329,18 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	@Override
 	public void onStateReceived(String stateSnapshot, String fromReplicaId) {
 		logger.info("State received from replica: " + fromReplicaId);
-		
+
 		// Mark state as received to prevent duplicate requests
 		stateReceived = true;
-		
+
+		// Set the remote replicaId so AtomicEdits are tagged correctly
+		currentRemoteReplicaId.set(fromReplicaId);
 		try {
 			restoreFromSnapshot(stateSnapshot);
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, "Failed to restore from snapshot", e);
+		} finally {
+			currentRemoteReplicaId.remove();
 		}
 	}
 
@@ -467,6 +371,23 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	 */
 	public boolean isStateReceived() {
 		return stateReceived;
+	}
+
+	/**
+	 * Creates and configures an UndoManager for this sync editing context.
+	 * The UndoManager is configured with the local replica ID to filter out remote edits.
+	 */
+	@Override
+	public org.openflexo.pamela.undo.UndoManager createUndoManager() {
+		org.openflexo.pamela.undo.UndoManager undoManager = super.createUndoManager();
+
+		// Configure the UndoManager with the local replica ID
+		// This ensures it only tracks edits from the local replica
+		if (syncManager != null) {
+			undoManager.setLocalReplicaId(syncManager.getReplicaId());
+		}
+
+		return undoManager;
 	}
 
 	/**
@@ -883,16 +804,22 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 			// Object doesn't exist yet - try to create it first (might happen because of reordering operations)			
 			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
 		
-		try {
+		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
 			if (handler != null) {
 				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
 				if (property != null) {
-					Object newValue = valueSerializer.deserialize(
-							operation.getNewValueSerialized(),
+					String value; 
+					if(operation.getOperationType().equals(OperationType.REMOVE)){
+						value = operation.getOldValueSerialized(); 
+					}
+					else{value= operation.getNewValueSerialized();}
+					Object newValue = valueSerializer.deserialize(						
+							value,
 							property.getType(),
 							this
 					);
+
 					switch(operation.getOperationType()){
 						case SET:
 						handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 

@@ -159,7 +159,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		consumeChannel.queueBind(queueName, exchangeName, routingKey);
 
 		// Set up consumer
-		DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+		DeliverCallback deliverCallback = (consumerTag, delivery) -> {	
 			if (closing) return;
 
 			try {
@@ -220,12 +220,11 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	 * @param operation the operation to publish
 	 */
 	@Override
-	public void publishOperation(SyncOperation operation) {
+	public void publishOperation(SyncOperation operation) {		
 		if (!connected) {
 			logger.warning("Cannot publish: not connected to RabbitMQ");
 			return;
 		}
-
 		try {
 			// Increment our vector clock
 			vectorClock.increment(replicaId);
