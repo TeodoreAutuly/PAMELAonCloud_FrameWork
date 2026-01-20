@@ -13,13 +13,15 @@
 
 package org.openflexo.pamela.sync;
 
+import java.beans.PropertyChangeListener;
+
 /**
  * Listener interface for receiving synchronization operations from remote replicas.
  * Implementations handle the application of remote operations to the local model.
  * 
  * @author PAMELA Team
  */
-public interface SyncOperationListener {
+public interface SyncOperationListener extends PropertyChangeListener{
 
 	/**
 	 * Called when a synchronization operation is received from a remote replica

@@ -20,6 +20,8 @@ import org.openflexo.pamela.PamelaMetaModel;
 import org.openflexo.pamela.PamelaMetaModelLibrary;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.sync.RabbitMQSyncManager;
+import org.openflexo.pamela.sync.ArtemisMQTTSyncManager;
+import org.openflexo.pamela.sync.ArtemisEmbeddedMQTTBroker;
 import org.openflexo.pamela.sync.SyncEditingContext;
 import org.openflexo.pamela.sync.SyncOperation;
 import org.openflexo.pamela.sync.SyncOperationListener;
@@ -30,20 +32,20 @@ import java.beans.PropertyChangeEvent;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class DistributedFeatureDemo {
+public class DistributedFeatureDemoMQTT {
 
     private static Library library;
     private static PamelaModelFactory factory;
     private static SyncEditingContext syncContext;
     private static String replicaName;
     private static final AtomicInteger bookCounter = new AtomicInteger(1);
+    private static boolean broker = false;
 
     // CloudAMQP configuration
-    private static final String AMQP_HOST = "rat.rmq2.cloudamqp.com";
-    private static final int AMQP_PORT = 5671;
+    private static final String AMQP_HOST = "127.0.0.1";
+    private static final int AMQP_PORT = 1883;
     private static final String AMQP_USER = "gcyabtej";
     private static final String AMQP_PASS = "C91PisA-dAYuoVTxHRnzU1RCU1fERHeU";
-    private static final String AMQP_VHOST = "gcyabtej";
 
     public static void main(String[] args) throws Exception {
         printBanner();
@@ -65,34 +67,9 @@ public class DistributedFeatureDemo {
         factory = new PamelaModelFactory(metaModel);
         syncContext = new SyncEditingContext(factory);
         factory.setEditingContext(syncContext);
-
-        // Configure RabbitMQ sync manager
-        System.out.println("[" + replicaName + "] Connecting to CloudAMQP...");
-        RabbitMQSyncManager syncManager = RabbitMQSyncManager.builder()
-                .host(AMQP_HOST)
-                .port(AMQP_PORT)
-                .credentials(AMQP_USER, AMQP_PASS)
-                .virtualHost(AMQP_VHOST)
-                .useSsl(true)
-                .exchangeName("pamela-distributed-demo")
-                .build();
-
-        // Setup sync context with auto state request
-        syncContext.setSyncManager(syncManager);
-        syncManager.addListener(syncContext);
         
-        // Add operation listener for visibility
-        syncManager.addListener(createOperationListener());
-
-        try {
-            syncManager.connect();
-            System.out.println("[" + replicaName + "] ✓ Connected! Replica ID: " + 
-                    syncManager.getReplicaId().substring(0, 8));
-        } catch (Exception e) {
-            System.err.println("[" + replicaName + "] ✗ Connection failed: " + e.getMessage());
-            return;
-        }
-
+        ArtemisMQTTSyncManager syncManager;
+        
         // Ask if joining existing session or creating new
         System.out.println();
         System.out.println("╔═══════════════════════════════════════════════════════════════╗");
@@ -107,6 +84,32 @@ public class DistributedFeatureDemo {
             // Join existing library
             System.out.print("Enter Library ID: ");
             String libraryId = scanner.nextLine().trim();
+            
+            // Configure RabbitMQ sync manager
+            System.out.println("[" + replicaName + "] Connecting to MQTT broker...");
+            syncManager = ArtemisMQTTSyncManager.builder()
+                    .host(AMQP_HOST)
+                    .port(AMQP_PORT)
+                    .credentials(AMQP_USER, AMQP_PASS)
+                    .useSsl(false)
+                    .exchangeName("pamela-distributed-demo")
+                    .build();
+            // Setup sync context with auto state request
+            syncContext.setSyncManager(syncManager);
+            syncManager.addListener(syncContext);
+            
+            // Add operation listener for visibility
+            syncManager.addListener(createOperationListener());
+            Thread.sleep(100);
+
+            try {
+                syncManager.connect();
+                System.out.println("[" + replicaName + "] ✓ Connected! Replica ID: " + 
+                        syncManager.getReplicaId().substring(0, 8));
+            } catch (Exception e) {
+                System.err.println("[" + replicaName + "] ✗ Connection failed: " + e.getMessage());
+                return;
+            }
             
             if (!libraryId.isEmpty()) {
                 // Create local library and register with same ID
@@ -128,6 +131,40 @@ public class DistributedFeatureDemo {
             }
         } else {
             createNewLibrary();
+            
+            ArtemisEmbeddedMQTTBroker.startEmbeddedBroker(AMQP_USER, AMQP_PASS);
+            broker = true;
+            
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("[" + replicaName + "] JVM shutdown detected, stopping embedded broker...");
+                ArtemisEmbeddedMQTTBroker.stopEmbeddedBroker();
+            }));
+            
+            // Configure RabbitMQ sync manager
+            System.out.println("[" + replicaName + "] Connecting to MQTT broker...");
+            syncManager = ArtemisMQTTSyncManager.builder()
+                    .host(AMQP_HOST)
+                    .port(AMQP_PORT)
+                    .credentials(AMQP_USER, AMQP_PASS)
+                    .useSsl(false)
+                    .exchangeName("pamela-distributed-demo")
+                    .build();
+            // Setup sync context with auto state request
+            syncContext.setSyncManager(syncManager);
+            syncManager.addListener(syncContext);
+            
+            // Add operation listener for visibility
+            syncManager.addListener(createOperationListener());
+            Thread.sleep(100);
+
+            try {
+                syncManager.connect();
+                System.out.println("[" + replicaName + "] ✓ Connected! Replica ID: " + 
+                        syncManager.getReplicaId().substring(0, 8));
+            } catch (Exception e) {
+                System.err.println("[" + replicaName + "] ✗ Connection failed: " + e.getMessage());
+                return;
+            }
         }
 
         // Print commands help
@@ -181,13 +218,16 @@ public class DistributedFeatureDemo {
                         break;
                         
                     case "info":
-                        printInfo(syncManager);
+                        //printInfo(syncManager);
                         break;
                         
                     case "quit":
                     case "exit":
                         System.out.println("[" + replicaName + "] Disconnecting...");
                         syncManager.close();
+                        if (broker) {
+                        	ArtemisEmbeddedMQTTBroker.stopEmbeddedBroker();
+                        }
                         System.out.println("[" + replicaName + "] Goodbye!");
                         return;
                         
@@ -507,8 +547,8 @@ public class DistributedFeatureDemo {
             public void onError(Throwable error) {
                 System.out.println("[" + replicaName + "] ❌ Error: " + error.getMessage());
             }
-
-			@Override
+            
+            @Override
 			public void propertyChange(PropertyChangeEvent evt) {}
         };
     }
