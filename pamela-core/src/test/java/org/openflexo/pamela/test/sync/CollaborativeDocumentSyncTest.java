@@ -13,6 +13,8 @@
 
 package org.openflexo.pamela.test.sync;
 
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import static org.junit.Assert.*;
 
 import java.util.ArrayList;
@@ -108,10 +110,10 @@ public class CollaborativeDocumentSyncTest {
 	@After
 	public void tearDown() {
 		if (syncManagerA != null) {
-			syncManagerA.disconnect();
+			syncManagerA.close();
 		}
 		if (syncManagerB != null) {
-			syncManagerB.disconnect();
+			syncManagerB.close();
 		}
 	}
 
@@ -433,6 +435,17 @@ public class CollaborativeDocumentSyncTest {
 			
 			@Override
 			public void onError(Throwable e) {}
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("CONNECTION".equals(evt.getPropertyName())) {
+					onConnected();
+				} else if ("DISCONNECTION".equals(evt.getPropertyName())) {
+					onDisconnected((String) evt.getNewValue());
+				} else if ("ERROR".equals(evt.getPropertyName())) {
+					onError((Throwable) evt.getNewValue());
+				}
+			}
 		});
 
 		// Connect to broker
@@ -488,6 +501,17 @@ public class CollaborativeDocumentSyncTest {
 			
 			@Override
 			public void onError(Throwable e) {}
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("CONNECTION".equals(evt.getPropertyName())) {
+					onConnected();
+				} else if ("DISCONNECTION".equals(evt.getPropertyName())) {
+					onDisconnected((String) evt.getNewValue());
+				} else if ("ERROR".equals(evt.getPropertyName())) {
+					onError((Throwable) evt.getNewValue());
+				}
+			}
 		});
 
 		// Connect
@@ -498,7 +522,7 @@ public class CollaborativeDocumentSyncTest {
 
 		// Disconnect
 		System.out.println("[Test] Disconnecting...");
-		syncManagerA.disconnect();
+		syncManagerA.close();
 
 		boolean disconnected = disconnectLatch.await(5, TimeUnit.SECONDS);
 		assertTrue("Should receive disconnect notification", disconnected);
@@ -570,6 +594,19 @@ public class CollaborativeDocumentSyncTest {
 			public void onError(Throwable e) {
 				System.out.println("[Replica B] Listener error: " + e.getMessage());
 				e.printStackTrace();
+			}
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				} else if ("CONNECTION".equals(evt.getPropertyName())) {
+					onConnected();
+				} else if ("DISCONNECTION".equals(evt.getPropertyName())) {
+					onDisconnected((String) evt.getNewValue());
+				} else if ("ERROR".equals(evt.getPropertyName())) {
+					onError((Throwable) evt.getNewValue());
+				}
 			}
 		});
 		System.out.println("[Setup] Listener registered on Replica B");
@@ -729,6 +766,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		Thread.sleep(500);
@@ -792,6 +835,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		System.out.println("[Replica A] Creating shared document");
@@ -820,6 +869,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		syncManagerB.addListener(new SyncOperationListener() {
@@ -833,6 +888,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		System.out.println("[Replica A] Setting title");
@@ -904,6 +965,17 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
 			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("STATE_RECEIVED".equals(evt.getPropertyName())) {
+					String value = (String) evt.getNewValue();
+					// Parse the composite value: stateSnapshot+FROM_REPLICA_ID+fromReplicaId
+					String[] parts = value.split("FROM_REPLICA_ID", 2);
+					if (parts.length == 2) {
+						onStateReceived(parts[0], parts[1]);
+					}
+				}
+			}
+			@Override
 			public void onStateReceived(String stateSnapshot, String fromReplicaId) {
 				stateLatch.countDown();
 				System.out.println("[Replica B] Received state from " + fromReplicaId);
@@ -973,6 +1045,15 @@ public class CollaborativeDocumentSyncTest {
 			
 			@Override
 			public void onError(Throwable e) {}
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("DISCONNECTION".equals(evt.getPropertyName())) {
+					onDisconnected((String) evt.getNewValue());
+				} else if ("ERROR".equals(evt.getPropertyName())) {
+					onError((Throwable) evt.getNewValue());
+				}
+			}
 		});
 
 		Thread.sleep(500);
@@ -984,7 +1065,7 @@ public class CollaborativeDocumentSyncTest {
 
 		// Voluntarily disconnect
 		System.out.println("[Replica A] Voluntarily disconnecting...");
-		syncManagerA.disconnect();
+		syncManagerA.close();
 
 		boolean disconnected = disconnectLatch.await(5, TimeUnit.SECONDS);
 		assertTrue("Should receive disconnect notification", disconnected);
@@ -1036,6 +1117,15 @@ public class CollaborativeDocumentSyncTest {
 				errorReceived.set(true);
 				System.out.println("[Replica A] Error detected: " + e.getMessage());
 			}
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("DISCONNECTION".equals(evt.getPropertyName())) {
+					onDisconnected((String) evt.getNewValue());
+				} else if ("ERROR".equals(evt.getPropertyName())) {
+					onError((Throwable) evt.getNewValue());
+				}
+			}
 		});
 
 		Thread.sleep(500);
@@ -1048,7 +1138,7 @@ public class CollaborativeDocumentSyncTest {
 		// Note: We cannot truly simulate a forced disconnect without network manipulation
 		// Instead, we verify the disconnect callback mechanism works
 		System.out.println("[Test] Disconnecting to simulate connection loss...");
-		syncManagerA.disconnect();
+		syncManagerA.close();
 
 		Thread.sleep(500);
 		assertTrue("Disconnect callback should be invoked", disconnectReceived.get());
@@ -1093,6 +1183,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		System.out.println("[Replica A] Creating document");
@@ -1108,7 +1204,7 @@ public class CollaborativeDocumentSyncTest {
 
 		// Phase 2: Replica A goes offline
 		System.out.println("[Replica A] Going offline");
-		syncManagerA.disconnect();
+		syncManagerA.close();
 		Thread.sleep(200);
 
 		// Replica A makes changes offline
@@ -1130,6 +1226,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		System.out.println("[Replica A] Reconnecting and syncing offline changes");
@@ -1192,6 +1294,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		System.out.println("[Replica A] Creating shared document");
@@ -1222,6 +1330,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		syncManagerB.addListener(new SyncOperationListener() {
@@ -1235,6 +1349,12 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onConnected() {}
 			@Override public void onDisconnected(String reason) {}
 			@Override public void onError(Throwable e) {}
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
+					onOperationReceived((SyncOperation) evt.getNewValue());
+				}
+			}
 		});
 
 		// Concurrent modifications - Last-Write-Wins (LWW) strategy
@@ -1284,7 +1404,7 @@ public class CollaborativeDocumentSyncTest {
 					.useSsl(USE_SSL)
 					.build();
 			testManager.connect();
-			testManager.disconnect();
+			testManager.close();
 			return true;
 		} catch (Exception e) {
 			return false;
@@ -1326,6 +1446,36 @@ public class CollaborativeDocumentSyncTest {
 		@Override
 		public void onError(Throwable e) {
 			System.err.println("  [Listener] Error: " + e.getMessage());
+		}
+
+		@Override
+		public void onStateRequested(String requestingReplicaId) {
+		}
+
+		@Override
+		public void onStateReceived(String stateSnapshot, String fromReplicaId) {
+		}
+
+		@Override
+		public void propertyChange(PropertyChangeEvent evt) {
+			String msg = evt.getPropertyName();
+			if ("OPERATION_RECEIVED".equals(msg)) {
+				onOperationReceived((SyncOperation) evt.getNewValue());
+			} else if ("CONNECTION".equals(msg)) {
+				onConnected();
+			} else if ("DISCONNECTION".equals(msg)) {
+				onDisconnected((String) evt.getNewValue());
+			} else if ("ERROR".equals(msg)) {
+				onError((Throwable) evt.getNewValue());
+			} else if ("STATE_REQUEST".equals(msg)) {
+				onStateRequested((String) evt.getNewValue());
+			} else if ("STATE_RECEIVED".equals(msg)) {
+				String stateData = (String) evt.getNewValue();
+				String[] parts = stateData.split("FROM_REPLICA_ID");
+				if (parts.length == 2) {
+					onStateReceived(parts[0], parts[1]);
+				}
+			}
 		}
 	}
 }

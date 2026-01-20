@@ -32,6 +32,9 @@ Then run the Book example with the following command:
 .\gradlew.bat :book:runDemo --console=plain
 ```
 
+```bash
+.\gradlew.bat :book:runDemoMQTT --console=plain
+
 To run the tests, please run: 
 
 ```bash

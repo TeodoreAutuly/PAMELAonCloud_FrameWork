@@ -11,6 +11,13 @@ dependencies {
   
   // Jackson for JSON serialization of sync operations
   api group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.16.0'
+  api group: 'org.apache.activemq', name: 'artemis-server', version: '2.33.0'
+  api group: 'org.eclipse.paho', name: 'org.eclipse.paho.client.mqttv3', version: '1.2.5'
+  
+  
+  implementation 'org.apache.activemq:artemis-mqtt-protocol:2.33.0'
+  implementation 'org.apache.activemq:artemis-core-client:2.33.0'
+  implementation 'org.apache.activemq:artemis-server:2.33.0'
 }
 // /Users/fdagnat/git/pamela/pamela-core/src/main/java/org/openflexo/pamela/factory/ModelFactory.java:399: error: incompatible types: Class<CAP#1> cannot be converted to Class<? extends I>
 //                        return proxyFactory.getSuperclass();
