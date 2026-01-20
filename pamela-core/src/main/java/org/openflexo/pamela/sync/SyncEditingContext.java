@@ -246,7 +246,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
     }
 
 	
-
+/* 
 	private LocalEditHandler findLocalHandlerFor(Class<? extends AtomicEdit> cls) {
 		// Exact match first
 		LocalEditHandler h = localEditHandlers.get(cls);
@@ -259,6 +259,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		}
 		return null;
 	}
+		*/
 
 	/**
 	 * Create a synchronized editing context with custom sync manager
