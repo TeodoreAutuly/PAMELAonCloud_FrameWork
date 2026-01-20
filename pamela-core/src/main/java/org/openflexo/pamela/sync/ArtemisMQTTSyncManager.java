@@ -83,7 +83,6 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         //startEmbeddedBroker();
 
         String brokerUrl = "tcp://" + host + ":" + port;
-        System.out.println(brokerUrl);
         mqttClient = new MqttClient(brokerUrl, "pamela-" + replicaId);
 
         mqttOptions = new MqttConnectOptions();
@@ -93,7 +92,6 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         mqttOptions.setPassword(password.toCharArray());
         
         
-        System.out.println("coucou");
 
         mqttClient.setCallback(new MqttCallback() {
         	@Override
@@ -157,11 +155,8 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
 
         });
         
-        System.out.println("coucou1");
         mqttClient.connect(mqttOptions);
-        System.out.println("coucou2");
         mqttClient.subscribe(mqttTopic, 1);
-        System.out.println("coucou3");
         
 
         connected = true;

@@ -22,6 +22,7 @@ import java.util.logging.Logger;
 
 import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
+import org.openflexo.pamela.sync.SyncOperation.OperationType;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
 

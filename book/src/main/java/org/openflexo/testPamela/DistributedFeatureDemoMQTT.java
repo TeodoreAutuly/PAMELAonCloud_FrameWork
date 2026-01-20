@@ -115,7 +115,6 @@ public class DistributedFeatureDemoMQTT {
                 .useSsl(false)
                 .exchangeName("pamela-distributed-demo")
                 .build();
-        System.out.println(syncManager);
         // Setup sync context with auto state request
         syncContext.setSyncManager(syncManager);
         syncManager.addListener(syncContext);
