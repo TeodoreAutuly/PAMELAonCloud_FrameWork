@@ -44,7 +44,7 @@ public interface CollaborativeDocument extends AccessibleProxyObject {
 	String TAGS = "tags";
 	String SECTIONS = "sections";
 
-	// ========== TITLE ==========
+	// ========== TITLE =========
 	
 	@Getter(value = TITLE, defaultValue = "Untitled")
 	@XMLAttribute
