@@ -96,9 +96,6 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
-
-		// Do not override UndoManager.addEdit here because the method signature may vary between versions.
-		// Keep customUndoManager null and rely on the default UndoManager created by createUndoManager().
 		this.customUndoManager = null;
 		registerDefaultHandlers();
 	}
@@ -171,7 +168,6 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
                 .build());
         });
 
-		// Import requis : org.openflexo.pamela.undo.RemoveCommand
 		registerLocalHandler(org.openflexo.pamela.undo.RemoveCommand.class, edit -> {
     	org.openflexo.pamela.undo.RemoveCommand<?> r = (org.openflexo.pamela.undo.RemoveCommand<?>) edit;
     	sendToCloud(buildBaseOp(SyncOperation.REMOVE, r.getObject(), r)
@@ -180,51 +176,14 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		});
     }
 
-	public void notifyLocalEdit(AtomicEdit<?> edit) {
-    // Cette méthode fait le pont avec ton système dynamique de Handlers
-    dispatchLocalEditToCloud(edit);
-	System.out.println("CONTEXT: Edit reçu ! Type: " + edit.getClass().getSimpleName());
+	private void sendToCloud(SyncOperation op) {
+    if (isApplyingRemoteOperation() || syncManager == null || !syncManager.isConnected()) {
+        return;
+    }
+
+    syncManager.publishOperation(op);
 }
 
-
-    // Helper: try to call a no-arg method by name and return result, or null if not present/failed
-    private Object invokeIfExists(Object target, String methodName) {
-        try {
-            java.lang.reflect.Method m = target.getClass().getMethod(methodName);
-            return m.invoke(target);
-        } catch (NoSuchMethodException ns) {
-            return null;
-        } catch (Exception e) {
-            logger.log(Level.FINE, "Reflection call failed for " + methodName + " on " + target.getClass(), e);
-            return null;
-        }
-    }
-
-	private void sendToCloud(SyncOperation op) {
-        if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) return;
-
-        String objectId = op.getObjectId();
-
-        // Si l'objet n'est pas encore "créé" sur le cloud, on met l'opération en attente 
-        if (!op.getOperationType().equals(SyncOperation.CREATE) && !createdObjects.containsKey(objectId)) {
-            pendingOperations.computeIfAbsent(objectId, k -> new ArrayList<>()).add(op);
-            logger.fine("Opération " + op.getOperationType() + " mise en buffer pour " + objectId);
-        } else {
-            syncManager.publishOperation(op);
-            if (op.getOperationType().equals(SyncOperation.CREATE)) {
-                handleObjectCreated(objectId);
-            }
-        }
-    }
-
-	private void handleObjectCreated(String objectId) {
-        createdObjects.put(objectId, Boolean.TRUE);
-        List<SyncOperation> buffered = pendingOperations.remove(objectId);
-        if (buffered != null) {
-            for (SyncOperation op : buffered) syncManager.publishOperation(op);
-            logger.fine("Libération du buffer pour " + objectId + " (" + buffered.size() + " ops)");
-        }
-    }
 
 	private SyncOperation.Builder buildBaseOp(String type, Object target, AtomicEdit<?> edit) {
         ModelProperty<?> prop = resolveModelPropertyFromEdit(edit, target);
@@ -280,19 +239,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
         handlers.put(type, handler);
     }
 
-	private void dispatchLocalEditToCloud(AtomicEdit<?> edit) {
-		if (edit == null) return;
-		LocalEditHandler handler = findLocalHandlerFor(edit.getClass());
-		if (handler != null) {
-			try {
-				handler.handle(edit);
-			} catch (Exception e) {
-				logger.log(Level.WARNING, "Local edit handler threw exception for " + edit.getClass(), e);
-			}
-		} else {
-			logger.fine("No local handler registered for edit type: " + edit.getClass().getName());
-		}
-	}
+	
 
 	private LocalEditHandler findLocalHandlerFor(Class<? extends AtomicEdit> cls) {
 		// Exact match first
