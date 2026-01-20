@@ -297,10 +297,11 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         pcs.removePropertyChangeListener(listener);
     }
     
+    @Override
     /**
-	 * Disconnect from MQTT broker
+	 * Closing connection from MQTT broker
 	 */
-    public void disconnect() {
+    public void close() {
     	if (!connected) {
 			return;
 		}
@@ -312,18 +313,13 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
                 mqttClient.close();
             }
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Error during disconnect", e);
+            logger.log(Level.WARNING, "Error during closing connection", e);
         }
 
         connected = false;
         closing = false;
-        logger.info("Disconnected from MQTT broker");
-        notifyDisconnected("Manual disconnect");
-    }
-
-    @Override
-    public void close() {
-        disconnect();
+        logger.info("Closing connection from MQTT broker");
+        notifyDisconnected("Manual closing");
     }
 
     private void notifyConnected() {

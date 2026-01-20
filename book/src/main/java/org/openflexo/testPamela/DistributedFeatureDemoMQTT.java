@@ -224,7 +224,7 @@ public class DistributedFeatureDemoMQTT {
                     case "quit":
                     case "exit":
                         System.out.println("[" + replicaName + "] Disconnecting...");
-                        syncManager.disconnect();
+                        syncManager.close();
                         if (broker) {
                         	ArtemisEmbeddedMQTTBroker.stopEmbeddedBroker();
                         }
