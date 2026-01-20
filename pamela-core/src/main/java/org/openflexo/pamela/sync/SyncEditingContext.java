@@ -394,7 +394,65 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		return object.getClass().getName();
 	}
 
+public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldValue,Object newValue,int index,String operationType){
+	if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
+        return;
+    }
+	try{ 
+		String objectId = identityManager.getOrCreateObjectId(object);
+        String entityType = getEntityTypeName(object);
+		 SyncOperation.Builder builder = new SyncOperation.Builder(operationType)
+                .replicaId(syncManager.getReplicaId())
+                .objectId(objectId)
+                .entityType(entityType);
 
+		if (property != null) {
+            builder.propertyIdentifier(property.getPropertyIdentifier())
+                   .valueType(property.getType().getName());
+        }
+
+		      // Serialize oldValue if relevant (remove and set)
+        if (oldValue != null && (operationType == SyncOperation.SET
+                || operationType == SyncOperation.REMOVE)) {
+
+            String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
+                                   ? valueSerializer.serializeReference(oldValue, identityManager)
+                                   : valueSerializer.serialize(oldValue);
+            builder.oldValue(serializedOld);
+        }
+			
+        // Serialize newValue if relevant (add and set)
+		    if (newValue != null && (operationType == SyncOperation.SET
+                || operationType == SyncOperation.ADD)) {
+            String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
+                                   ? valueSerializer.serializeReference(newValue, identityManager)
+                                   : valueSerializer.serialize(newValue);
+            builder.newValue(serializedNew);
+        }
+		 // Index for ADD/REINDEX
+		if (operationType == SyncOperation.ADD || operationType == SyncOperation.REINDEX) {
+            builder.index(index);
+        }
+		SyncOperation operation = builder.build();
+		syncManager.publishOperation(operation);
+		if(operationType ==SyncOperation.CREATE){
+		createdObjects.put(objectId, Boolean.TRUE);
+			
+		// Then send any buffered operations for this object
+		List<SyncOperation> buffered = pendingOperations.remove(objectId);
+		if (buffered != null) {
+			for (SyncOperation bufferedOp : buffered) {
+				syncManager.publishOperation(bufferedOp);
+			}
+			logger.fine("Sent " + buffered.size() + " buffered operations for: " + objectId);
+		}
+
+	}
+	}
+	catch (Exception e) {
+        logger.log(Level.SEVERE, "Failed to broadcast " + operationType + " operation", e);
+    }
+}
 	// SyncOperationListener implementation
 	@Override
     public void onOperationReceived(SyncOperation operation) {

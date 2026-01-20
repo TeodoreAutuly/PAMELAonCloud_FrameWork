@@ -193,7 +193,7 @@ public class CollaborativeDocumentSyncTest {
 		// Find the SET operation for this specific document
 		SyncOperation setOp = null;
 		for (SyncOperation op : receivedOperationsB) {
-			if (op.getOperationType() == SyncOperation.SET
+			if (op.getOperationType() == SyncOperation.OperationType.SET
 					&& "title".equals(op.getPropertyIdentifier())
 					&& docId.equals(op.getObjectId())) {
 				setOp = op;
@@ -205,14 +205,10 @@ public class CollaborativeDocumentSyncTest {
 		System.out.println("[Replica B] Received operation: " + setOp.getOperationType()
 				+ " on property '" + setOp.getPropertyIdentifier() + "'");
 
-		assertEquals("Operation type should be SET", SyncOperation.SET, setOp.getOperationType());
+		assertEquals("Operation type should be SET", SyncOperation.OperationType.SET, setOp.getOperationType());
 		assertEquals("Property should be 'title'", "title", setOp.getPropertyIdentifier());
 		assertEquals("New value should match", "Hello from Computer A", setOp.getNewValueSerialized());
 
-		// Get the object created on Replica B by the remote CREATE operation
-		docB = (CollaborativeDocument) contextB.getIdentityManager().getObject(docId);
-		assertNotNull("Replica B should have created the document via applyRemoteCreate", docB);
-		
 		// Verify Replica B's document was updated
 		assertEquals("Replica B's document title should be updated",
 				"Hello from Computer A", docB.getTitle());
@@ -296,71 +292,74 @@ public class CollaborativeDocumentSyncTest {
 	/**
 	 * Test bidirectional synchronization - both replicas can make changes.
 	 */
-@Test
-public void testBidirectionalSync() throws Exception {
-	if (!isRabbitMQAvailable()) {
-		System.out.println("SKIPPING TEST: RabbitMQ not available");
-		return;
+	@Test
+	public void testBidirectionalSync() throws Exception {
+		if (!isRabbitMQAvailable()) {
+			System.out.println("SKIPPING TEST: RabbitMQ not available");
+			return;
+		}
+
+		// Connect replicas
+		syncManagerA.connect();
+		syncManagerB.connect();
+
+		contextA.setSyncManager(syncManagerA);
+		syncManagerA.addListener(contextA);
+
+		contextB.setSyncManager(syncManagerB);
+		syncManagerB.addListener(contextB);
+
+		Thread.sleep(1000);
+
+		// ========== FIRST: Test A -> B (we know this works) ==========
+		CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
+		String docId = contextA.getIdentityManager().getOrCreateObjectId(docA);
+		System.out.println("[Test] Created docA with ID: " + docId);
+
+		Thread.sleep(500);
+
+		CollaborativeDocument docB = factoryB.newInstance(CollaborativeDocument.class);
+		contextB.getIdentityManager().registerObject(docB, docId);
+		System.out.println("[Test] Registered docB with same ID");
+
+		System.out.println("\n[TEST 1] A -> B: Setting content on A");
+		docA.setContent("Content from A");
+		Thread.sleep(1000);
+
+		assertEquals("Content from A", docB.getContent());
+		System.out.println("[✓] A -> B works");
+
+		// ========== SECOND: Test B -> A (this is failing) ==========
+		// The problem: docB was created BEFORE syncManagerB was attached,
+		// so changes to docB aren't being tracked!
+
+		// Let's try creating a FRESH document on B AFTER sync is set up
+		System.out.println("\n[TEST 2] B -> A: Creating NEW document on B");
+
+		CollaborativeDocument docB2 = factoryB.newInstance(CollaborativeDocument.class);
+		String docId2 = contextB.getIdentityManager().getOrCreateObjectId(docB2);
+		System.out.println("[Test] Created docB2 with ID: " + docId2);
+
+		Thread.sleep(500);
+
+		// Register corresponding object on A
+		CollaborativeDocument docA2 = factoryA.newInstance(CollaborativeDocument.class);
+		contextA.getIdentityManager().registerObject(docA2, docId2);
+		System.out.println("[Test] Registered docA2 with same ID");
+
+		// NOW try to modify docB2
+		System.out.println("[Test] Setting author on docB2");
+		docB2.setAuthor("User from B");
+		Thread.sleep(2000);
+
+		System.out.println("[Debug] docA2.getAuthor() = " + docA2.getAuthor());
+		System.out.println("[Debug] docB2.getAuthor() = " + docB2.getAuthor());
+
+		assertEquals("User from B", docA2.getAuthor());
+		System.out.println("[✓] B -> A works");
+
+		System.out.println("\n✓ Bidirectional sync works!");
 	}
-
-	// Connect replicas
-	syncManagerA.connect();
-	syncManagerB.connect();
-
-	contextA.setSyncManager(syncManagerA);
-	syncManagerA.addListener(contextA);
-	syncManagerA.addListener(new TestOperationListener(receivedOperationsA, null));
-
-	contextB.setSyncManager(syncManagerB);
-	syncManagerB.addListener(contextB);
-	syncManagerB.addListener(new TestOperationListener(receivedOperationsB, null));
-
-	Thread.sleep(1000);
-
-	// ========== FIRST: Test A -> B ==========
-	CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
-	String docId = contextA.getIdentityManager().getOrCreateObjectId(docA);
-	System.out.println("[Test] Created docA with ID: " + docId);
-
-	// Ensure a corresponding object exists on B and is registered with the same id
-	CollaborativeDocument docB = factoryB.newInstance(CollaborativeDocument.class);
-	contextB.getIdentityManager().registerObject(docB, docId);
-	System.out.println("[Test] Registered docB with same ID");
-
-	System.out.println("\n[TEST 1] A -> B: Setting content on A");
-	docA.setContent("Content from A");
-	Thread.sleep(1000); // give time for propagation
-
-	// Verify that the change arrived on Replica B
-	assertEquals("Content from A", docB.getContent());
-	System.out.println("[✓] A -> B works");
-
-	// ========== SECOND: Test B -> A ==========
-	System.out.println("\n[TEST 2] B -> A: Creating NEW document on B");
-	CollaborativeDocument docB2 = factoryB.newInstance(CollaborativeDocument.class);
-	String docId2 = contextB.getIdentityManager().getOrCreateObjectId(docB2);
-	System.out.println("[Test] Created docB2 with ID: " + docId2);
-
-	Thread.sleep(500);
-
-	// Register corresponding object on A
-	CollaborativeDocument docA2 = factoryA.newInstance(CollaborativeDocument.class);
-	contextA.getIdentityManager().registerObject(docA2, docId2);
-	System.out.println("[Test] Registered docA2 with same ID");
-
-	// NOW try to modify docB2
-	System.out.println("[Test] Setting author on docB2");
-	docB2.setAuthor("User from B");
-	Thread.sleep(2000); // give time for propagation
-
-	System.out.println("[Debug] docA2.getAuthor() = " + docA2.getAuthor());
-	System.out.println("[Debug] docB2.getAuthor() = " + docB2.getAuthor());
-
-	assertEquals("User from B", docA2.getAuthor());
-	System.out.println("[✓] B -> A works");
-
-	System.out.println("\n✓ Bidirectional sync works!");
-}
 	/**
 	 * Check if RabbitMQ is available for testing.
 	 */

@@ -1080,6 +1080,10 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		}
 
 		// Broadcast delete operation to other replicas
+		if (trackAtomicEdit) {
+			broadcastOperation(null, null, null, -1, SyncOperation.DELETE);
+;
+		}
 
 		deleted = true;
 		deleting = false;
@@ -1437,7 +1441,10 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		}
 		propertyImplementation.set(value);
 		
-		
+		// Broadcast sync operation if connected
+		if (trackAtomicEdit && oldValue != value) {
+			broadcastOperation(property, oldValue, value, -1, SyncOperation.OperationType.SET);
+		}
 	}
 
 	private <T> void internallyInvokeUpdater(ModelProperty<? super I> property, SettablePropertyImplementation<I, T> propertyImplementation,
@@ -1456,14 +1463,14 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		// System.out.println("Invoke ADDER "+property.getPropertyIdentifier());
 		if (trackAtomicEdit && getUndoManager() != null) {
 			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
-			if (getEditingContext() instanceof SyncEditingContext) {
-            ((SyncEditingContext) getEditingContext()).notifyLocalEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
-        }
 		}
 		propertyImplementation.addTo(value, index);
-		System.out.println("PROXY: Envoi de l'édit au contexte");
 		
-		
+		// Broadcast sync operation if connected
+		if (trackAtomicEdit) {
+			System.out.println("I'm attempting to make an add broadcast");
+			broadcastOperation(property, null, value, index, SyncOperation.OperationType.ADD); 			
+		}
 	}
 
 	private <T> void internallyInvokeRemover(ModelProperty<? super I> property, MultiplePropertyImplementation<I, T> propertyImplementation,
@@ -1474,11 +1481,13 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		}
 		propertyImplementation.removeFrom(value);
 		
-		
+		// Broadcast sync operation if connected
+		if (trackAtomicEdit) {
+			broadcastOperation(property, value, null, -1, SyncOperation.OperationType.REMOVE);		
+		}
 	}
 
-	private <T> void internallyInvokeReindexer(ModelProperty<? super I> property,
-			ReindexableListPropertyImplementation<I, T> propertyImplementation, T value, int index, boolean trackAtomicEdit)
+	private <T> void internallyInvokeReindexer(ModelProperty<? super I> property, ReindexableListPropertyImplementation<I, T> propertyImplementation, T value, int index, boolean trackAtomicEdit)
 			throws ModelDefinitionException {
 		// System.out.println("Invoke ADDER "+property.getPropertyIdentifier());
 		if (trackAtomicEdit && getUndoManager() != null) {
@@ -2693,4 +2702,11 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	 * Broadcast an operation to other replicas
 	 */
 
+	public void broadcastOperation(ModelProperty<? super I> property, Object oldValue, Object newValue, int index, SyncOperation.OperationType operationType){
+	SyncEditingContext syncCtx = getSyncEditingContext();
+	
+		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
+			syncCtx.broadcast(getObject(), property, oldValue, newValue,index, operationType);
+		}
+	}
 }
