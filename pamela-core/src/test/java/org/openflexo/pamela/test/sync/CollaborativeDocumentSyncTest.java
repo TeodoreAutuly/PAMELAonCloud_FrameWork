@@ -193,7 +193,7 @@ public class CollaborativeDocumentSyncTest {
 		// Find the SET operation for this specific document
 		SyncOperation setOp = null;
 		for (SyncOperation op : receivedOperationsB) {
-			if (op.getOperationType() == SyncOperation.OperationType.SET
+			if (op.getOperationType() == SyncOperation.SET
 					&& "title".equals(op.getPropertyIdentifier())
 					&& docId.equals(op.getObjectId())) {
 				setOp = op;
@@ -205,7 +205,7 @@ public class CollaborativeDocumentSyncTest {
 		System.out.println("[Replica B] Received operation: " + setOp.getOperationType()
 				+ " on property '" + setOp.getPropertyIdentifier() + "'");
 
-		assertEquals("Operation type should be SET", SyncOperation.OperationType.SET, setOp.getOperationType());
+		assertEquals("Operation type should be SET", SyncOperation.SET, setOp.getOperationType());
 		assertEquals("Property should be 'title'", "title", setOp.getPropertyIdentifier());
 		assertEquals("New value should match", "Hello from Computer A", setOp.getNewValueSerialized());
 

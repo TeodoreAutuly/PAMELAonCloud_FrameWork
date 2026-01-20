@@ -1443,7 +1443,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit && oldValue != value) {
-			broadcastOperation(property, oldValue, value, -1, SyncOperation.OperationType.SET);
+			broadcastOperation(property, oldValue, value, -1, SyncOperation.SET);
 		}
 	}
 
@@ -1469,7 +1469,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
 			System.out.println("I'm attempting to make an add broadcast");
-			broadcastOperation(property, null, value, index, SyncOperation.OperationType.ADD); 			
+			broadcastOperation(property, null, value, index, SyncOperation.ADD); 			
 		}
 	}
 
@@ -1483,7 +1483,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
-			broadcastOperation(property, value, null, -1, SyncOperation.OperationType.REMOVE);		
+			broadcastOperation(property, value, null, -1, SyncOperation.REMOVE);		
 		}
 	}
 
@@ -2702,7 +2702,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	 * Broadcast an operation to other replicas
 	 */
 
-	public void broadcastOperation(ModelProperty<? super I> property, Object oldValue, Object newValue, int index, SyncOperation.OperationType operationType){
+	public void broadcastOperation(ModelProperty<? super I> property, Object oldValue, Object newValue, int index, String operationType){
 	SyncEditingContext syncCtx = getSyncEditingContext();
 	
 		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
