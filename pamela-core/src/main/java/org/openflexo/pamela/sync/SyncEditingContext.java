@@ -47,6 +47,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	private final ObjectIdentityManager identityManager;
 	private final SyncValueSerializer valueSerializer;
 	private PamelaModelFactory modelFactory;
+	private org.openflexo.pamela.undo.UndoManager customUndoManager;
+    
 
 	@FunctionalInterface
 	public interface LocalEditHandler {
@@ -55,7 +57,11 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	// Flag to prevent recursive sync when applying remote operations
 	private final ThreadLocal<Boolean> applyingRemoteOperation = ThreadLocal.withInitial(() -> false);
-	
+
+	// Stores the replicaId of the remote operation currently being applied
+	// Used by ProxyMethodHandler.getCurrentReplicaId() to tag AtomicEdits with the correct replicaId
+	private final ThreadLocal<String> currentRemoteReplicaId = new ThreadLocal<>();
+
 	// Buffer for operations during object creation (ensures CREATE is sent before SETs)
 	// Key: objectId, Value: list of buffered operations
 	private final Map<String, List<SyncOperation>> pendingOperations = new ConcurrentHashMap<>();
@@ -90,8 +96,15 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+
+		// Do not override UndoManager.addEdit here because the method signature may vary between versions.
+		// Keep customUndoManager null and rely on the default UndoManager created by createUndoManager().
+		this.customUndoManager = null;
 		registerDefaultHandlers();
 	}
+
+// createUndoManager() is implemented later in this class to configure the UndoManager
+// (kept here intentionally as a single definition to avoid duplicate method declarations).
 
 	public <T extends AtomicEdit<?>> void registerLocalHandler(Class<T> editClass, LocalEditHandler handler) {
 		if (editClass == null || handler == null) return;
@@ -100,9 +113,9 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
     private void registerDefaultHandlers() {
         // Remote handlers (inbound)
-        handlers.put(SyncOperation.SET, this::applyRemoteSet);
-        handlers.put(SyncOperation.ADD, this::applyRemoteAdd);
-        handlers.put(SyncOperation.REMOVE, this::applyRemoteRemove);
+        handlers.put(SyncOperation.SET, this::applyRemoteModification);
+        handlers.put(SyncOperation.ADD, this::applyRemoteModification);
+        handlers.put(SyncOperation.REMOVE, this::applyRemoteModification);
         handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
 		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
 
@@ -126,66 +139,53 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
        });
 	   
        // Local handlers (outbound)
-           registerLocalHandler(SetCommand.class, edit -> {
-            try {
-                SetCommand<?> s = (SetCommand<?>) edit;
-                Object target = s.getObject();
-                ModelProperty<?> prop = resolveModelPropertyFromEdit(s, target);
-                Object oldVal = invokeIfExists(s, "getOldValue");
-                Object newVal = invokeIfExists(s, "getNewValue");
-                if (prop != null) {
-                    broadcastSetRaw(target, prop, oldVal, newVal);
-                } else {
-                    logger.fine("No ModelProperty resolved for SetCommand, skipping broadcast");
-                }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Local SetCommand handler failed", e);
-            }
+       registerLocalHandler(SetCommand.class, edit -> {
+            SetCommand<?> s = (SetCommand<?>) edit;
+            sendToCloud(buildBaseOp(SyncOperation.SET, s.getObject(), s)
+                .oldValue(valueSerializer.serialize(s.getOldValue()))
+                .newValue(valueSerializer.serialize(s.getNewValue()))
+                .build());
         });
 
         registerLocalHandler(AddCommand.class, edit -> {
-            try {
-                AddCommand<?> a = (AddCommand<?>) edit;
-                Object target = a.getObject();
-                ModelProperty<?> prop = resolveModelPropertyFromEdit(a, target);
-                Object added = invokeIfExists(a, "getAddedElement");
-                Integer index = null;
-                Object idxObj = invokeIfExists(a, "getIndex");
-                if (idxObj instanceof Integer) index = (Integer) idxObj;
-                if (prop != null) {
-                    broadcastAddRaw(target, prop, added, index != null ? index : -1);
-                } else {
-                    logger.fine("No ModelProperty resolved for AddCommand, skipping broadcast");
-                }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Local AddCommand handler failed", e);
-            }
+            AddCommand<?> a = (AddCommand<?>) edit;
+            sendToCloud(buildBaseOp(SyncOperation.ADD, a.getObject(), a)
+                .newValue(valueSerializer.serialize(a.getAddedValue()))
+                .index(a.getIndex())
+                .build());
         });
 
         registerLocalHandler(CreateCommand.class, edit -> {
-            try {
-                Object target = edit.getObject();
-                String entityType = getEntityTypeName(target);
-                broadcastCreate(target, entityType);
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Local CreateCommand handler failed", e);
-            }
+            sendToCloud(new SyncOperation.Builder(SyncOperation.CREATE)
+                .replicaId(getReplicaId())
+                .objectId(identityManager.getOrCreateObjectId(edit.getObject()))
+                .entityType(getEntityTypeName(edit.getObject()))
+                .build());
         });
 
-		registerLocalHandler(DeleteCommand.class, edit -> {
-            broadcastDelete(edit.getObject());
+        registerLocalHandler(DeleteCommand.class, edit -> {
+            sendToCloud(new SyncOperation.Builder(SyncOperation.DELETE)
+                .replicaId(getReplicaId())
+                .objectId(identityManager.getObjectId(edit.getObject()))
+                .entityType(getEntityTypeName(edit.getObject()))
+                .build());
         });
+
+		// Import requis : org.openflexo.pamela.undo.RemoveCommand
+		registerLocalHandler(org.openflexo.pamela.undo.RemoveCommand.class, edit -> {
+    	org.openflexo.pamela.undo.RemoveCommand<?> r = (org.openflexo.pamela.undo.RemoveCommand<?>) edit;
+    	sendToCloud(buildBaseOp(SyncOperation.REMOVE, r.getObject(), r)
+        .oldValue(valueSerializer.serialize(r.getRemovedValue())) // Capture l'élément supprimé
+        .build());
+		});
     }
 
-	@SuppressWarnings("unchecked")
-    private void broadcastSetRaw(Object object, ModelProperty<?> property, Object oldValue, Object newValue) {
-        broadcastSet((Object) object, (ModelProperty<? super Object>) property, oldValue, newValue);
-    }
+	public void notifyLocalEdit(AtomicEdit<?> edit) {
+    // Cette méthode fait le pont avec ton système dynamique de Handlers
+    dispatchLocalEditToCloud(edit);
+	System.out.println("CONTEXT: Edit reçu ! Type: " + edit.getClass().getSimpleName());
+}
 
-    @SuppressWarnings("unchecked")
-    private void broadcastAddRaw(Object object, ModelProperty<?> property, Object addedValue, int index) {
-        broadcastAdd((Object) object, (ModelProperty<? super Object>) property, addedValue, index);
-    }
 
     // Helper: try to call a no-arg method by name and return result, or null if not present/failed
     private Object invokeIfExists(Object target, String methodName) {
@@ -198,6 +198,42 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
             logger.log(Level.FINE, "Reflection call failed for " + methodName + " on " + target.getClass(), e);
             return null;
         }
+    }
+
+	private void sendToCloud(SyncOperation op) {
+        if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) return;
+
+        String objectId = op.getObjectId();
+
+        // Si l'objet n'est pas encore "créé" sur le cloud, on met l'opération en attente 
+        if (!op.getOperationType().equals(SyncOperation.CREATE) && !createdObjects.containsKey(objectId)) {
+            pendingOperations.computeIfAbsent(objectId, k -> new ArrayList<>()).add(op);
+            logger.fine("Opération " + op.getOperationType() + " mise en buffer pour " + objectId);
+        } else {
+            syncManager.publishOperation(op);
+            if (op.getOperationType().equals(SyncOperation.CREATE)) {
+                handleObjectCreated(objectId);
+            }
+        }
+    }
+
+	private void handleObjectCreated(String objectId) {
+        createdObjects.put(objectId, Boolean.TRUE);
+        List<SyncOperation> buffered = pendingOperations.remove(objectId);
+        if (buffered != null) {
+            for (SyncOperation op : buffered) syncManager.publishOperation(op);
+            logger.fine("Libération du buffer pour " + objectId + " (" + buffered.size() + " ops)");
+        }
+    }
+
+	private SyncOperation.Builder buildBaseOp(String type, Object target, AtomicEdit<?> edit) {
+        ModelProperty<?> prop = resolveModelPropertyFromEdit(edit, target);
+        return new SyncOperation.Builder(type)
+            .replicaId(getReplicaId())
+            .objectId(identityManager.getOrCreateObjectId(target))
+            .entityType(getEntityTypeName(target))
+            .propertyIdentifier(prop != null ? prop.getPropertyIdentifier() : null)
+            .valueType(prop != null ? prop.getType().getName() : null);
     }
 
     // Helper: resolve ModelProperty from an AtomicEdit using either a property object or a property identifier exposed by the edit.
@@ -330,6 +366,20 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	}
 
 	/**
+	 * Get the replicaId of the operation currently being processed.
+	 * If applying a remote operation, returns the remote replica's ID.
+	 * Otherwise, returns the local replica's ID.
+	 * This is used by ProxyMethodHandler to tag AtomicEdits with the correct replicaId.
+	 */
+	public String getCurrentOperationReplicaId() {
+		String remoteId = currentRemoteReplicaId.get();
+		if (remoteId != null) {
+			return remoteId;
+		}
+		return getReplicaId();
+	}
+
+	/**
 	 * Get the interface name for a PAMELA object.
 	 * Returns the implemented interface name (e.g., "org.example.Book") instead of
 	 * the proxy class name (e.g., "Book$BookImpl_$$_jvst806_1").
@@ -344,189 +394,14 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		return object.getClass().getName();
 	}
 
-	/**
-	 * Broadcast a SET operation
-	 */
-	public <I> void broadcastSet(I object, ModelProperty<? super I> property, Object oldValue, Object newValue) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.SET)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.oldValue(valueSerializer.serialize(oldValue))
-					.newValue(valueSerializer.serialize(newValue))
-					.valueType(property.getType().getName())
-					.build();
-
-			// Check if CREATE has been sent for this object - if not, buffer the operation
-			if (!createdObjects.containsKey(objectId)) {
-				// Buffer the operation to be sent after CREATE
-				pendingOperations.computeIfAbsent(objectId, k -> new ArrayList<>()).add(operation);
-				logger.fine("Buffered SET operation for object not yet created: " + objectId);
-			} else {
-				syncManager.publishOperation(operation);
-			}
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast SET operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast an ADD operation
-	 */
-	public <I> void broadcastAdd(I object, ModelProperty<? super I> property, Object addedValue, int index) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
-
-			// For PAMELA objects, use reference serialization
-			String serializedValue;
-			if (addedValue != null && modelFactory != null && modelFactory.isProxyObject(addedValue)) {
-				// Ensure added object is registered and use reference
-				identityManager.getOrCreateObjectId(addedValue);
-				serializedValue = valueSerializer.serializeReference(addedValue, identityManager);
-			} else {
-				serializedValue = valueSerializer.serialize(addedValue);
-			}
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.ADD)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.newValue(serializedValue)
-					.valueType(property.getType().getName())
-					.index(index)
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast ADD operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast a REMOVE operation
-	 */
-	public <I> void broadcastRemove(I object, ModelProperty<? super I> property, Object removedValue) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-			String entityType = getEntityTypeName(object);
-
-			// For PAMELA objects, use reference serialization
-			String serializedValue;
-			if (removedValue != null && modelFactory != null && modelFactory.isProxyObject(removedValue)) {
-				serializedValue = valueSerializer.serializeReference(removedValue, identityManager);
-			} else {
-				serializedValue = valueSerializer.serialize(removedValue);
-			}
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.REMOVE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.propertyIdentifier(property.getPropertyIdentifier())
-					.oldValue(serializedValue)
-					.valueType(property.getType().getName())
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast REMOVE operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast a CREATE operation
-	 */
-	public <I> void broadcastCreate(I object, String entityType) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getOrCreateObjectId(object);
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.build();
-
-			// Send CREATE first
-			syncManager.publishOperation(operation);
-			
-			// Mark object as created
-			createdObjects.put(objectId, Boolean.TRUE);
-			
-			// Then send any buffered operations for this object
-			List<SyncOperation> buffered = pendingOperations.remove(objectId);
-			if (buffered != null) {
-				for (SyncOperation bufferedOp : buffered) {
-					syncManager.publishOperation(bufferedOp);
-				}
-				logger.fine("Sent " + buffered.size() + " buffered operations for: " + objectId);
-			}
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast CREATE operation", e);
-		}
-	}
-
-	/**
-	 * Broadcast a DELETE operation
-	 */
-	public <I> void broadcastDelete(I object) {
-		if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
-			return;
-		}
-
-		try {
-			String objectId = identityManager.getObjectId(object);
-			if (objectId == null) {
-				logger.warning("Cannot broadcast delete for unregistered object");
-				return;
-			}
-
-			String entityType = getEntityTypeName(object);
-
-			SyncOperation operation = new SyncOperation.Builder(SyncOperation.DELETE)
-					.replicaId(syncManager.getReplicaId())
-					.objectId(objectId)
-					.entityType(entityType)
-					.build();
-
-			syncManager.publishOperation(operation);
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to broadcast DELETE operation", e);
-		}
-	}
 
 	// SyncOperationListener implementation
-
 	@Override
     public void onOperationReceived(SyncOperation operation) {
-        if (modelFactory == null) return;
+        if (modelFactory == null) {
+			logger.warning("ModelFactory not set, cannot apply remote operation");
+			return;
+		}
 
         applyingRemoteOperation.set(true);
         try {
@@ -542,6 +417,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
             }
         } finally {
             applyingRemoteOperation.set(false);
+			currentRemoteReplicaId.remove();
+
         }
     }
 
@@ -584,14 +461,18 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	@Override
 	public void onStateReceived(String stateSnapshot, String fromReplicaId) {
 		logger.info("State received from replica: " + fromReplicaId);
-		
+
 		// Mark state as received to prevent duplicate requests
 		stateReceived = true;
-		
+
+		// Set the remote replicaId so AtomicEdits are tagged correctly
+		currentRemoteReplicaId.set(fromReplicaId);
 		try {
 			restoreFromSnapshot(stateSnapshot);
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, "Failed to restore from snapshot", e);
+		} finally {
+			currentRemoteReplicaId.remove();
 		}
 	}
 
@@ -622,6 +503,23 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	 */
 	public boolean isStateReceived() {
 		return stateReceived;
+	}
+
+	/**
+	 * Creates and configures an UndoManager for this sync editing context.
+	 * The UndoManager is configured with the local replica ID to filter out remote edits.
+	 */
+	@Override
+	public org.openflexo.pamela.undo.UndoManager createUndoManager() {
+		org.openflexo.pamela.undo.UndoManager undoManager = super.createUndoManager();
+
+		// Configure the UndoManager with the local replica ID
+		// This ensures it only tracks edits from the local replica
+		if (syncManager != null) {
+			undoManager.setLocalReplicaId(syncManager.getReplicaId());
+		}
+
+		return undoManager;
 	}
 
 	/**
@@ -1032,97 +930,49 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	// Private methods for applying remote operations
 
-	private void applyRemoteSet(SyncOperation operation) {
+	private void applyRemoteModification(SyncOperation operation){
 		Object target = identityManager.getObject(operation.getObjectId());
-		if (target == null) {
-			// Object doesn't exist yet - try to create it first
-			// This can happen if SET arrives before CREATE due to message ordering
-			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
-			if (target == null) {
-				logger.warning("Target object not found for SET: " + operation.getObjectId());
-				return;
-			}
-		}
-
-		try {
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
-			if (handler != null) {
-				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
-				if (property != null) {
-					Object newValue = valueSerializer.deserialize(
-							operation.getNewValueSerialized(),
-							property.getType(),
-							this
-					);
-					handler.invokeSetter(operation.getPropertyIdentifier(), newValue);
-				}
-			}
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote SET", e);
-		}
-	}
-
-	private void applyRemoteAdd(SyncOperation operation) {
-		logger.info("Applying remote ADD: objectId=" + operation.getObjectId() 
-				+ " property=" + operation.getPropertyIdentifier() 
-				+ " value=" + operation.getNewValueSerialized());
+		if (target == null) 
+			// Object doesn't exist yet - try to create it first (might happen because of reordering operations)			
+			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
 		
-		Object target = identityManager.getObject(operation.getObjectId());
-		if (target == null) {
-			// Object doesn't exist yet - try to create it first
-			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
-			if (target == null) {
-				logger.warning("Target object not found for ADD: " + operation.getObjectId());
-				return;
-			}
-		}
-
-		try {
+		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
 			if (handler != null) {
 				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
 				if (property != null) {
-					Object value = valueSerializer.deserialize(
-							operation.getNewValueSerialized(),
+					String value; 
+					if(operation.getOperationType().equals("REMOVE")){
+						value = operation.getOldValueSerialized(); 
+					}
+					else{value= operation.getNewValueSerialized();}
+					Object newValue = valueSerializer.deserialize(						
+							value,
 							property.getType(),
 							this
 					);
-					logger.info("Deserialized value for ADD: " + value + " (type=" + (value != null ? value.getClass().getName() : "null") + ")");
-					// Use property identifier string
-					handler.invokeAdder(operation.getPropertyIdentifier(), value);
-					logger.info("Successfully added to collection");
+
+					switch(operation.getOperationType()){
+						case "SET":
+						handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
+						break; 
+						case "ADD": 	
+						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
+						break; 
+						case "REMOVE": 
+						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
+						break; 
+						default: 
+						break; 
+					}					
 				}
 			}
 		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote ADD", e);
+			logger.log(Level.SEVERE, "Failed to apply" + operation.getOperationType(), e);
 		}
 	}
 
-	private void applyRemoteRemove(SyncOperation operation) {
-		Object target = identityManager.getObject(operation.getObjectId());
-		if (target == null) {
-			logger.warning("Target object not found for REMOVE: " + operation.getObjectId());
-			return;
-		}
-
-		try {
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
-			if (handler != null) {
-				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
-				if (property != null) {
-					Object value = valueSerializer.deserialize(
-							operation.getOldValueSerialized(),
-							property.getType(),
-							this
-					);
-					handler.invokeRemover(operation.getPropertyIdentifier(), value);
-				}
-			}
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote REMOVE", e);
-		}
-	}
-
+	
 	private void applyRemoteCreate(SyncOperation operation) {
 		// Check if object already exists
 		if (identityManager.hasObject(operation.getObjectId())) {
@@ -1176,6 +1026,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, "Failed to apply remote DELETE", e);
 		}
+	
 	}
 
 	/**
@@ -1186,13 +1037,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	 * @param entityType the entity class name
 	 * @return the object, or null if creation failed
 	 */
-	private Object ensureRemoteObjectExists(String objectId, String entityType) {
-		// Check again if it exists now
-		Object existing = identityManager.getObject(objectId);
-		if (existing != null) {
-			return existing;
-		}
-
+	private Object ensureRemoteObjectExists(String objectId, String entityType) {					
 		if (entityType == null) {
 			logger.warning("Cannot create object without entityType for ID: " + objectId);
 			return null;

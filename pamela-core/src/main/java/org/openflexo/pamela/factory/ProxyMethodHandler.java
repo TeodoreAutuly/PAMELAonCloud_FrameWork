@@ -123,6 +123,7 @@ import org.openflexo.pamela.undo.RemoveCommand;
 import org.openflexo.pamela.undo.SetCommand;
 import org.openflexo.pamela.undo.UndoManager;
 import org.openflexo.pamela.sync.SyncEditingContext;
+import org.openflexo.pamela.sync.SyncOperation;
 import org.openflexo.toolbox.HasPropertyChangeSupport;
 
 import com.google.common.base.Defaults;
@@ -227,6 +228,19 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	public UndoManager getUndoManager() {
 		if (getEditingContext() != null) {
 			return getEditingContext().getUndoManager();
+		}
+		return null;
+	}
+
+	/**
+	 * Get the current replica ID from the SyncEditingContext.
+	 * Returns null if not in a sync context or if no SyncManager is configured.
+	 */
+	private String getCurrentReplicaId() {
+		EditingContext context = getModelFactory().getEditingContext();
+		if (context instanceof org.openflexo.pamela.sync.SyncEditingContext) {
+			org.openflexo.pamela.sync.SyncEditingContext syncContext = (org.openflexo.pamela.sync.SyncEditingContext) context;
+			return syncContext.getCurrentOperationReplicaId();
 		}
 		return null;
 	}
@@ -423,7 +437,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 					if (getUndoManager() != null) {
 						if (oldValue != args[0]) {
 							getUndoManager().addEdit(
-									new SetCommand<>(getObject(), getModelEntity(), property, oldValue, args[0], getModelFactory()));
+									new SetCommand<>(getObject(), getModelEntity(), property, oldValue, args[0], getModelFactory(), getCurrentReplicaId()));
 						}
 					}
 					if (property.isSerializable()) {
@@ -435,7 +449,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 					// We will invoke it, but also notify UndoManager, and call setModified() after adder invoking
 					// System.out.println("DETECTS ADD with " + proceed + " instead of " + method);
 					if (getUndoManager() != null) {
-						getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory()));
+						getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory(), getCurrentReplicaId()));
 					}
 					if (property.isSerializable()) {
 						callSetModifiedAtTheEnd = true;
@@ -446,7 +460,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 					// We will invoke it, but also notify UndoManager, and call setModified() after remover invoking
 					// System.out.println("DETECTS REMOVE with " + proceed + " instead of " + method);
 					if (getUndoManager() != null) {
-						getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory()));
+						getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory(), getCurrentReplicaId()));
 					}
 					if (property.isSerializable()) {
 						callSetModifiedAtTheEnd = true;
@@ -1062,13 +1076,10 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		}
 
 		if (trackAtomicEdit && getUndoManager() != null) {
-			getUndoManager().addEdit(new DeleteCommand<>(getObject(), getModelEntity(), getModelFactory()));
+			getUndoManager().addEdit(new DeleteCommand<>(getObject(), getModelEntity(), getModelFactory(), getCurrentReplicaId()));
 		}
 
 		// Broadcast delete operation to other replicas
-		if (trackAtomicEdit) {
-			broadcastDeleteOperation();
-		}
 
 		deleted = true;
 		deleting = false;
@@ -1107,7 +1118,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		undeleting = true;
 
 		if (trackAtomicEdit && getUndoManager() != null) {
-			getUndoManager().addEdit(new CreateCommand<>(getObject(), getModelEntity(), getModelFactory()));
+			getUndoManager().addEdit(new CreateCommand<>(getObject(), getModelEntity(), getModelFactory(), getCurrentReplicaId()));
 		}
 
 		if (restoreProperties) {
@@ -1421,15 +1432,12 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		Object oldValue = invokeGetter(property);
 		if (trackAtomicEdit && getUndoManager() != null) {
 			if (oldValue != value) {
-				getUndoManager().addEdit(new SetCommand<>(getObject(), getModelEntity(), property, oldValue, value, getModelFactory()));
+				getUndoManager().addEdit(new SetCommand<>(getObject(), getModelEntity(), property, oldValue, value, getModelFactory(), getCurrentReplicaId()));
 			}
 		}
 		propertyImplementation.set(value);
 		
-		// Broadcast sync operation if connected
-		if (trackAtomicEdit && oldValue != value) {
-			broadcastSetOperation(property, oldValue, value);
-		}
+		
 	}
 
 	private <T> void internallyInvokeUpdater(ModelProperty<? super I> property, SettablePropertyImplementation<I, T> propertyImplementation,
@@ -1437,7 +1445,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		if (trackAtomicEdit && getUndoManager() != null) {
 			Object oldValue = invokeGetter(property);
 			if (oldValue != value) {
-				getUndoManager().addEdit(new SetCommand<>(getObject(), getModelEntity(), property, oldValue, value, getModelFactory()));
+				getUndoManager().addEdit(new SetCommand<>(getObject(), getModelEntity(), property, oldValue, value, getModelFactory(), getCurrentReplicaId()));
 			}
 		}
 		propertyImplementation.update(value);
@@ -1447,28 +1455,26 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 			T value, int index, boolean trackAtomicEdit) throws ModelDefinitionException {
 		// System.out.println("Invoke ADDER "+property.getPropertyIdentifier());
 		if (trackAtomicEdit && getUndoManager() != null) {
-			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory()));
+			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
+			if (getEditingContext() instanceof SyncEditingContext) {
+            ((SyncEditingContext) getEditingContext()).notifyLocalEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
+        }
 		}
 		propertyImplementation.addTo(value, index);
+		System.out.println("PROXY: Envoi de l'édit au contexte");
 		
-		// Broadcast sync operation if connected
-		if (trackAtomicEdit) {
-			broadcastAddOperation(property, value, index);
-		}
+		
 	}
 
 	private <T> void internallyInvokeRemover(ModelProperty<? super I> property, MultiplePropertyImplementation<I, T> propertyImplementation,
 			T value, boolean trackAtomicEdit) throws ModelDefinitionException {
 		// System.out.println("Invoke ADDER "+property.getPropertyIdentifier());
 		if (trackAtomicEdit && getUndoManager() != null) {
-			getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, value, getModelFactory()));
+			getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
 		}
 		propertyImplementation.removeFrom(value);
 		
-		// Broadcast sync operation if connected
-		if (trackAtomicEdit) {
-			broadcastRemoveOperation(property, value);
-		}
+		
 	}
 
 	private <T> void internallyInvokeReindexer(ModelProperty<? super I> property,
@@ -1476,8 +1482,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 			throws ModelDefinitionException {
 		// System.out.println("Invoke ADDER "+property.getPropertyIdentifier());
 		if (trackAtomicEdit && getUndoManager() != null) {
-			getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, value, getModelFactory()));
-			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory()));
+			getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
+			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
 		}
 		propertyImplementation.reindex(value, index);
 	}
@@ -2684,53 +2690,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	}
 
 	/**
-	 * Broadcast a SET operation to other replicas
+	 * Broadcast an operation to other replicas
 	 */
-	private void broadcastSetOperation(ModelProperty<? super I> property, Object oldValue, Object newValue) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastSet(getObject(), property, oldValue, newValue);
-		}
-	}
-
-	/**
-	 * Broadcast an ADD operation to other replicas
-	 */
-	private void broadcastAddOperation(ModelProperty<? super I> property, Object addedValue, int index) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastAdd(getObject(), property, addedValue, index);
-		}
-	}
-
-	/**
-	 * Broadcast a REMOVE operation to other replicas
-	 */
-	private void broadcastRemoveOperation(ModelProperty<? super I> property, Object removedValue) {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastRemove(getObject(), property, removedValue);
-		}
-	}
-
-	/**
-	 * Broadcast a DELETE operation to other replicas
-	 */
-	public void broadcastDeleteOperation() {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastDelete(getObject());
-		}
-	}
-
-	/**
-	 * Broadcast a CREATE operation to other replicas
-	 */
-	public void broadcastCreateOperation() {
-		SyncEditingContext syncCtx = getSyncEditingContext();
-		if (syncCtx != null && !syncCtx.isApplyingRemoteOperation()) {
-			syncCtx.broadcastCreate(getObject(), getModelEntity().getImplementedInterface().getName());
-		}
-	}
 
 }

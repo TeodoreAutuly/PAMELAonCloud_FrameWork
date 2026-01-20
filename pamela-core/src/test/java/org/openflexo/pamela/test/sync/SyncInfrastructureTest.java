@@ -238,7 +238,7 @@ public class SyncInfrastructureTest {
 		assertEquals(SyncOperation.ADD, op.getOperationType());
 		assertEquals("java", op.getNewValueSerialized());
 	}
-
+	
 	@Test
 	public void testRemoveOperationCapture() {
 		capturedOperations.clear();

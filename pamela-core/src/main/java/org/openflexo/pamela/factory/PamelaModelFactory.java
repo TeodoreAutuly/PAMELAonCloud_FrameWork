@@ -67,6 +67,7 @@ import org.openflexo.pamela.model.ModelProperty;
 import org.openflexo.pamela.model.StringConverterLibrary.Converter;
 import org.openflexo.pamela.undo.CreateCommand;
 import org.openflexo.pamela.sync.SyncEditingContext;
+import org.openflexo.pamela.sync.SyncOperation;
 import org.openflexo.pamela.xml.XMLSaxDeserializer;
 import org.openflexo.pamela.xml.XMLSerializer;
 
@@ -450,16 +451,13 @@ public class PamelaModelFactory {
 			I returned = proxyFactory.newInstance(args);
 			if (getEditingContext() != null) {
 				if (getEditingContext().getUndoManager() != null) {
-					getEditingContext().getUndoManager().addEdit(new CreateCommand<>(returned, proxyFactory.getModelEntity(), this));
+					getEditingContext().getUndoManager().addEdit(new CreateCommand<>(returned, proxyFactory.getModelEntity(), this, getCurrentReplicaId()));
 				}
 				// Broadcast CREATE operation for collaborative sync
 				if (getEditingContext() instanceof SyncEditingContext) {
 					SyncEditingContext syncContext = (SyncEditingContext) getEditingContext();
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
-						if (handler != null) {
-							handler.broadcastCreateOperation();
-						}
 					}
 				}
 			}
@@ -500,16 +498,14 @@ public class PamelaModelFactory {
 			I returned = proxyFactory.newInstance(args);
 			if (getEditingContext() != null) {
 				if (getEditingContext().getUndoManager() != null) {
-					getEditingContext().getUndoManager().addEdit(new CreateCommand<>(returned, proxyFactory.getModelEntity(), this));
+					getEditingContext().getUndoManager().addEdit(new CreateCommand<>(returned, proxyFactory.getModelEntity(), this, getCurrentReplicaId()));
 				}
 				// Broadcast CREATE operation for collaborative sync
 				if (getEditingContext() instanceof SyncEditingContext) {
 					SyncEditingContext syncContext = (SyncEditingContext) getEditingContext();
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
-						if (handler != null) {
-							handler.broadcastCreateOperation();
-						}
+						
 					}
 				}
 			}
@@ -1034,6 +1030,18 @@ public class PamelaModelFactory {
 	 */
 	public EditingContext getEditingContext() {
 		return editingContext;
+	}
+
+	/**
+	 * Get the current replica ID from the SyncEditingContext.
+	 * Returns null if not in a sync context or if no SyncManager is configured.
+	 */
+	private String getCurrentReplicaId() {
+		if (editingContext instanceof SyncEditingContext) {
+			SyncEditingContext syncContext = (SyncEditingContext) editingContext;
+			return syncContext.getReplicaId();
+		}
+		return null;
 	}
 
 	/**
