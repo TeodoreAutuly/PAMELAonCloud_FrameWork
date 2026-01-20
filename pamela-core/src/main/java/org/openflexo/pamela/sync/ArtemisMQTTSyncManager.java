@@ -157,7 +157,6 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         
         mqttClient.connect(mqttOptions);
         mqttClient.subscribe(mqttTopic, 1);
-        
 
         connected = true;
         logger.info("Connected to MQTT broker at " + host + ":" + port + " as replica " + replicaId);
