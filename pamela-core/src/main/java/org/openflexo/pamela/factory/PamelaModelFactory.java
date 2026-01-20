@@ -509,7 +509,9 @@ public class PamelaModelFactory {
 					SyncEditingContext syncContext = (SyncEditingContext) getEditingContext();
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
-						handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.CREATE);
+						if (handler != null) {
+							handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.CREATE);
+						}
 					}
 				}
 			}
