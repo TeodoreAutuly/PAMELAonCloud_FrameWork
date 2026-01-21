@@ -85,6 +85,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		this.propertyStateManager = new PropertyStateManager(); 
 	}
 
 	/**
@@ -95,6 +96,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = syncManager;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		this.propertyStateManager = new PropertyStateManager(); 
 		if (this.syncManager != null) {
 			this.syncManager.addListener(this);
 		}
@@ -144,6 +146,10 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	public boolean isApplyingRemoteOperation() {
 		return applyingRemoteOperation.get();
 	}
+	
+	public PropertyStateManager getPropertyStateManager() {
+		return this.propertyStateManager;
+	}
 
 	/**
 	 * Get the replicaId of the operation currently being processed.
@@ -192,7 +198,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
         }
 
 		      // Serialize oldValue if relevant (remove and set)
-        if (oldValue != null && (operationType == SyncOperation.OperationType.SET
+        if (oldValue != null && (operationType == SyncOperation.OperationType.SET 
                 || operationType == SyncOperation.OperationType.REMOVE
 				|| operationType.equals(SyncOperation.OperationType.REINDEX))) {
 
@@ -216,6 +222,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
             builder.index(index);
         }
 		SyncOperation operation = builder.build();
+		propertyStateManager.storeIntoMap(operation);
 		System.out.println("Broadcast : " + operation.getOperationType() + " : " + " : " + operation.getObjectId() + " : " + operation.getPropertyIdentifier() + " : " + operation.getOldValueSerialized() + " : " + operation.getNewValueSerialized() + " : " + operation.getIndex());
 		syncManager.publishOperation(operation);
 		if(operationType ==SyncOperation.OperationType.CREATE){
@@ -271,7 +278,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			logger.warning("ModelFactory not set, cannot apply remote operation");
 			return;
 		}
-
+		propertyStateManager.storeIntoMap(operation);
 		applyingRemoteOperation.set(true);
 		currentRemoteReplicaId.set(operation.getReplicaId());
 		try {
