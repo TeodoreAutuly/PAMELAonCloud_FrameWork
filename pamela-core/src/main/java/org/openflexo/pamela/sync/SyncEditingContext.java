@@ -81,6 +81,10 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	// Flag to track if state has been received (to avoid multiple requests)
 	private volatile boolean stateReceived = false;
 
+	// Root objects by entity type - these are used instead of creating new ones for remote operations
+	// Key: entity class name, Value: the root object for that type
+	private final Map<String, Object> rootObjects = new ConcurrentHashMap<>();
+
 	/**
 	 * Create a synchronized editing context without a sync manager.
 	 * Call setSyncManager() to set one later.
@@ -615,6 +619,34 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 	}
 
 	/**
+	 * Register a root object for a specific entity type.
+	 * When remote operations arrive for this entity type and the object doesn't exist,
+	 * the root object will be used instead of creating a new one.
+	 * This is essential for objects like Diagram that are created locally and observed by the UI.
+	 *
+	 * @param object the root object to register
+	 */
+	public void registerRootObject(Object object) {
+		if (object == null) return;
+		ProxyMethodHandler<?> handler = modelFactory.getHandler(object);
+		if (handler != null) {
+			String entityType = handler.getModelEntity().getImplementedInterface().getName();
+			rootObjects.put(entityType, object);
+			logger.info("Registered root object for type: " + entityType);
+		}
+	}
+
+	/**
+	 * Get the root object for an entity type, if registered.
+	 *
+	 * @param entityType the entity class name
+	 * @return the root object, or null if not registered
+	 */
+	public Object getRootObject(String entityType) {
+		return rootObjects.get(entityType);
+	}
+
+	/**
 	 * Check if automatic state request on connect is enabled.
 	 * 
 	 * @return true if enabled
@@ -1059,9 +1091,19 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 	private void applyRemoteModification(SyncOperation operation){
 		Object target = identityManager.getObject(operation.getObjectId());
-		if (target == null)
-			// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
-			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
+		if (target == null) {
+			// Check if we have a root object of this type that we should use instead of creating a new one
+			Object rootObject = getRootObject(operation.getEntityType());
+			if (rootObject != null) {
+				// Use the root object and map the remote ID to it
+				logger.info("Using root object for remote operation on " + operation.getEntityType());
+				identityManager.registerObject(rootObject, operation.getObjectId());
+				target = rootObject;
+			} else {
+				// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
+				target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
+			}
+		}
 
 		try {
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
@@ -1104,6 +1146,14 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						break;
 						case "ADD":
 						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
+						// Finalize deserialization for the added object now that it's in the model
+						if (newValue != null) {
+							ProxyMethodHandler<?> addedHandler = modelFactory.getHandler(newValue);
+							if (addedHandler != null && addedHandler.isDeserializing()) {
+								addedHandler.setDeserializing(false);
+								logger.fine("Finalized deserialization for added object: " + newValue);
+							}
+						}
 						logger.info("ADD completed: added " + newValue + " to " + operation.getPropertyIdentifier());
 						break;
 						case "REMOVE":
