@@ -363,7 +363,13 @@ public class DistributedFeatureDemoMQTT {
             return;
         }
         
-        library.moveBookToIndex(book, newIndex);
+        if (library.getBooks().size() > newIndex ) {
+        	library.moveBookToIndex(book, newIndex);
+        } else {
+        	System.out.println("[" + replicaName + "] ✗ Index out of range");
+        	return;
+        }
+        
         System.out.println("[" + replicaName + "] ✓ MOVE: Moved '" + title + "' to index " + newIndex);
         System.out.println("    → This triggers REINDEX operation broadcast to all replicas");
     }
