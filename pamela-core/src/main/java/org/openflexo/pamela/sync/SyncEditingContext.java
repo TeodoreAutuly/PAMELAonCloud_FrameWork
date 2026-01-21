@@ -71,7 +71,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
-		this.propertyStateManager = new PropertyStateManager(); 
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 	}
 
 	/**
@@ -84,7 +84,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
-		this.propertyStateManager = new PropertyStateManager(); 
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 	}
 
 	/**

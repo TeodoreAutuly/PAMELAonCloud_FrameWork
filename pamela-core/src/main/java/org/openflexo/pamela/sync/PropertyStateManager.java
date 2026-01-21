@@ -13,6 +13,7 @@
 
 package org.openflexo.pamela.sync;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +27,7 @@ public class PropertyStateManager{
     private Map<String,Map<String,SyncOperation>> mapCrdt; 
     private ObjectIdentityManager objectIdentityManager; 
     public PropertyStateManager(ObjectIdentityManager objectIdentityManager){
-        this.mapCrdt() =new HashMap<>(); 
+        this.mapCrdt =new HashMap<>(); 
         this.objectIdentityManager = objectIdentityManager; 
     }
 
@@ -36,25 +37,17 @@ public class PropertyStateManager{
     }
 
     public void storeIntoMap(SyncOperation operation){
-        if(operation.getOperationType().equals(OperationType.SET))
+        if(operation.getOperationType().equals(OperationType.SET)||operation.getOperationType().equals(OperationType.REINDEX))
          mapCrdt.computeIfAbsent(operation.getObjectId(), id -> new HashMap<>()).put(operation.getPropertyIdentifier(), operation);
-        if(operation.getOperationType.equals(OperationType.DELETE)||operation.getOperationType.equals(OperationType.REMOVE)){
-            AccessibleProxyObject object = objectIdentityManager.getObject(object.getObjectId());             
-            Objects = object.getHandler().getReferencedObject().add(operation.getObject()); 
-            for(Object object : objects){
-                for(property :)
-            }
-        }
-
+        if(operation.getOperationType().equals(OperationType.DELETE))
+            recursiveDelete(operation,operation.getObjectId());
     }
 
     private void recursiveDelete(SyncOperation operation, String initObjectId){
-
         AccessibleProxyObject object = (AccessibleProxyObject)objectIdentityManager.getObject(initObjectId);
         for(String property : mapCrdt.get(initObjectId).keySet()){
             mapCrdt.get(initObjectId).put(property, operation);
         }   
-
         List<? extends AccessibleProxyObject> referencedObjects = object.getReferencedObjects();
         for(AccessibleProxyObject referencedObject : referencedObjects){
             String newObjectId = objectIdentityManager.getObjectId(referencedObject);
