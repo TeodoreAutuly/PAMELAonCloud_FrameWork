@@ -1287,6 +1287,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	public void invokeReindexer(ModelProperty<? super I> property, Object value, int index) {
 		try {
 			if (property.getReindexerMethod() != null) {
+				System.out.println(""+getObject()+" :"+ value+" :"+ index);
 				property.getReindexerMethod().invoke(getObject(), value, index);
 			}
 			else {
@@ -1521,6 +1522,11 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
 		}
 		propertyImplementation.reindex(value, index);
+		
+		// Broadcast sync operation if connected
+		if (trackAtomicEdit) {
+			broadcastOperation(property, value, value, index, SyncOperation.OperationType.REINDEX);		
+		}
 	}
 
 	private boolean isObjectAttributeEquals(Object o, String attribute, Object value) throws ModelDefinitionException {

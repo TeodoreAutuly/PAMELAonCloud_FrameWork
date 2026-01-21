@@ -22,9 +22,9 @@ import java.util.logging.Logger;
 
 import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.sync.SyncOperation.OperationType;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.sync.SyncOperation.OperationType;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -191,7 +191,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 		      // Serialize oldValue if relevant (remove and set)
         if (oldValue != null && (operationType == SyncOperation.OperationType.SET
-                || operationType == SyncOperation.OperationType.REMOVE)) {
+                || operationType == SyncOperation.OperationType.REMOVE
+				|| operationType.equals(SyncOperation.OperationType.REINDEX))) {
 
             String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
                                    ? valueSerializer.serializeReference(oldValue, identityManager)
@@ -201,7 +202,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			
         // Serialize newValue if relevant (add and set)
 		    if (newValue != null && (operationType == SyncOperation.OperationType.SET
-                || operationType == SyncOperation.OperationType.ADD)) {
+                || operationType == SyncOperation.OperationType.ADD
+				|| operationType.equals(SyncOperation.OperationType.REINDEX))) {
             String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
                                    ? valueSerializer.serializeReference(newValue, identityManager)
                                    : valueSerializer.serialize(newValue);
@@ -212,6 +214,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
             builder.index(index);
         }
 		SyncOperation operation = builder.build();
+		System.out.println("Broadcast : " + operation.getOperationType() + " : " + " : " + operation.getObjectId() + " : " + operation.getPropertyIdentifier() + " : " + operation.getOldValueSerialized() + " : " + operation.getNewValueSerialized() + " : " + operation.getIndex());
 		syncManager.publishOperation(operation);
 		if(operationType ==SyncOperation.OperationType.CREATE){
 		createdObjects.put(objectId, Boolean.TRUE);
@@ -277,7 +280,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 				case DELETE:
 					applyRemoteDelete(operation);
 					break;
-				case SET: case ADD: case REMOVE:
+				case SET: case ADD: case REMOVE: case REINDEX:
 					applyRemoteModification(operation);
 					break;
 				default:
@@ -815,11 +818,14 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						value = operation.getOldValueSerialized(); 
 					}
 					else{value= operation.getNewValueSerialized();}
+					System.out.println("TEST applyRemoteModification : "+operation.getOldValueSerialized()+ " : "+operation.getNewValueSerialized());
+
 					Object newValue = valueSerializer.deserialize(						
 							value,
 							property.getType(),
 							this
 					);
+					int index = operation.getIndex();
 
 					switch(operation.getOperationType()){
 						case SET:
@@ -831,6 +837,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						case REMOVE: 
 						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
 						break; 
+						case REINDEX:
+						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
 						default: 
 						break; 
 					}					
