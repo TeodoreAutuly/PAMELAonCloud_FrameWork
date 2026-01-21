@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
  * JUnit tests for ArtemisMQTTSyncManager
  */
 @ExtendWith(MockitoExtension.class)
-class ArtemisMQTTSyncManagerTest {
+public class ArtemisMQTTSyncManagerTest {
 
     private ArtemisMQTTSyncManager syncManager;
 
