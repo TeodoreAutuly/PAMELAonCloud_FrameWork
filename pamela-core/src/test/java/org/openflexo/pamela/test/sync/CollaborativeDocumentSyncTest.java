@@ -965,10 +965,7 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onError(Throwable e) {}
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
-				System.out.println("coucou");
-				System.out.println(evt.getPropertyName());
 				if ("STATE_RECEIVED".equals(evt.getPropertyName())) {
-					System.out.println("coucou2222");
 					String value = (String) evt.getNewValue();
 					// Parse the composite value: stateSnapshot+FROM_REPLICA_ID+fromReplicaId
 					String[] parts = value.split("FROM_REPLICA_ID", 2);
