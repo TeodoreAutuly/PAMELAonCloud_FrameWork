@@ -78,6 +78,18 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	}
 
 	/**
+	 * Create a RabbitMQ sync manager with host, port, and exchange name.
+	 * Uses default guest credentials and "/" virtual host.
+	 *
+	 * @param host the RabbitMQ server host
+	 * @param port the RabbitMQ server port
+	 * @param exchangeName the exchange name (also used as session name)
+	 */
+	public RabbitMQSyncManager(String host, int port, String exchangeName) {
+		this(host, port, "guest", "guest", "/", exchangeName, "operations", false);
+	}
+
+	/**
 	 * Create a RabbitMQ sync manager with custom settings
 	 */
 	public RabbitMQSyncManager(String host, int port, String username, String password,
@@ -280,7 +292,15 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	}
 
 	/**
-	 * Disconnect from RabbitMQ
+	 * Disconnect from RabbitMQ (implements SyncManager.disconnect())
+	 */
+	@Override
+	public void disconnect() {
+		close();
+	}
+
+	/**
+	 * Disconnect from RabbitMQ (implements AutoCloseable)
 	 */
 	@Override
 	public void close() {

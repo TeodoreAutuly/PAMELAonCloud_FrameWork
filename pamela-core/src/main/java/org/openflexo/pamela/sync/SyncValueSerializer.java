@@ -13,6 +13,8 @@
 
 package org.openflexo.pamela.sync;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -20,7 +22,10 @@ import java.util.logging.Logger;
  * Serializer for property values in sync operations.
  * Handles conversion of PAMELA property values to/from string representation
  * for transmission over RabbitMQ.
- * 
+ *
+ * Supports custom type serializers for application-specific types like
+ * geometry objects, colors, etc.
+ *
  * @author PAMELA Team
  */
 public class SyncValueSerializer {
@@ -32,14 +37,101 @@ public class SyncValueSerializer {
 	private static final String OBJECT_REF_PREFIX = "__REF__:";
 
 	/**
+	 * Interface for custom type serializers.
+	 * Allows applications to register serializers for their specific types.
+	 *
+	 * @param <T> the type this serializer handles
+	 */
+	public interface CustomTypeSerializer<T> {
+		/**
+		 * Get the prefix used in serialized strings to identify this type.
+		 * Should be unique and uppercase (e.g., "POINT:", "COLOR:").
+		 */
+		String getPrefix();
+
+		/**
+		 * Get the class this serializer handles.
+		 */
+		Class<T> getType();
+
+		/**
+		 * Serialize a value to string representation.
+		 * The prefix will be automatically added.
+		 *
+		 * @param value the value to serialize (never null)
+		 * @return string representation without prefix
+		 */
+		String serialize(T value);
+
+		/**
+		 * Deserialize a string representation to a value.
+		 * The prefix will be already stripped.
+		 *
+		 * @param serialized the serialized string without prefix
+		 * @return the deserialized value
+		 */
+		T deserialize(String serialized);
+	}
+
+	// Registry of custom type serializers by class
+	private final Map<Class<?>, CustomTypeSerializer<?>> serializersByClass = new ConcurrentHashMap<>();
+
+	// Registry of custom type serializers by prefix
+	private final Map<String, CustomTypeSerializer<?>> serializersByPrefix = new ConcurrentHashMap<>();
+
+	/**
+	 * Register a custom type serializer.
+	 *
+	 * @param serializer the custom type serializer to register
+	 * @param <T> the type the serializer handles
+	 */
+	public <T> void registerCustomSerializer(CustomTypeSerializer<T> serializer) {
+		if (serializer == null || serializer.getType() == null || serializer.getPrefix() == null) {
+			throw new IllegalArgumentException("Serializer, type, and prefix must not be null");
+		}
+		serializersByClass.put(serializer.getType(), serializer);
+		serializersByPrefix.put(serializer.getPrefix(), serializer);
+		logger.fine("Registered custom serializer for type: " + serializer.getType().getName());
+	}
+
+	/**
+	 * Unregister a custom type serializer.
+	 *
+	 * @param type the type to unregister
+	 */
+	public void unregisterCustomSerializer(Class<?> type) {
+		CustomTypeSerializer<?> removed = serializersByClass.remove(type);
+		if (removed != null) {
+			serializersByPrefix.remove(removed.getPrefix());
+		}
+	}
+
+	/**
+	 * Check if a custom serializer is registered for the given type.
+	 *
+	 * @param type the type to check
+	 * @return true if a serializer is registered
+	 */
+	public boolean hasCustomSerializer(Class<?> type) {
+		return serializersByClass.containsKey(type);
+	}
+
+	/**
 	 * Serialize a value to string representation
-	 * 
+	 *
 	 * @param value the value to serialize
 	 * @return string representation
 	 */
+	@SuppressWarnings("unchecked")
 	public String serialize(Object value) {
 		if (value == null) {
 			return NULL_MARKER;
+		}
+
+		// Check for custom type serializer first
+		CustomTypeSerializer<Object> customSerializer = (CustomTypeSerializer<Object>) findSerializerForClass(value.getClass());
+		if (customSerializer != null) {
+			return customSerializer.getPrefix() + customSerializer.serialize(value);
 		}
 
 		// Handle primitive types and common types
@@ -61,6 +153,36 @@ public class SyncValueSerializer {
 		// A more robust solution would check if it's a proxy object
 
 		return value.toString();
+	}
+
+	/**
+	 * Find a serializer for the given class, checking superclasses and interfaces.
+	 */
+	private CustomTypeSerializer<?> findSerializerForClass(Class<?> clazz) {
+		// Direct match
+		CustomTypeSerializer<?> serializer = serializersByClass.get(clazz);
+		if (serializer != null) {
+			return serializer;
+		}
+
+		// Check superclass
+		Class<?> superclass = clazz.getSuperclass();
+		if (superclass != null && superclass != Object.class) {
+			serializer = findSerializerForClass(superclass);
+			if (serializer != null) {
+				return serializer;
+			}
+		}
+
+		// Check interfaces
+		for (Class<?> iface : clazz.getInterfaces()) {
+			serializer = serializersByClass.get(iface);
+			if (serializer != null) {
+				return serializer;
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -86,7 +208,7 @@ public class SyncValueSerializer {
 
 	/**
 	 * Deserialize a string representation to a value
-	 * 
+	 *
 	 * @param serialized the serialized string
 	 * @param targetType the expected type
 	 * @param syncContext the sync context for resolving object references
@@ -101,6 +223,27 @@ public class SyncValueSerializer {
 		if (serialized.startsWith(OBJECT_REF_PREFIX)) {
 			String objectId = serialized.substring(OBJECT_REF_PREFIX.length());
 			return syncContext.getIdentityManager().getObject(objectId);
+		}
+
+		// Check for custom type serializer by prefix
+		for (Map.Entry<String, CustomTypeSerializer<?>> entry : serializersByPrefix.entrySet()) {
+			if (serialized.startsWith(entry.getKey())) {
+				String value = serialized.substring(entry.getKey().length());
+				return entry.getValue().deserialize(value);
+			}
+		}
+
+		// Check for custom type serializer by target type
+		CustomTypeSerializer<?> customSerializer = findSerializerForClass(targetType);
+		if (customSerializer != null) {
+			// The serialized string might not have a prefix if it was serialized externally
+			// Try to deserialize directly if it doesn't match another format
+			try {
+				return customSerializer.deserialize(serialized);
+			} catch (Exception e) {
+				// Fall through to default handling
+				logger.fine("Custom serializer failed for: " + serialized + ", falling back to default");
+			}
 		}
 
 		try {

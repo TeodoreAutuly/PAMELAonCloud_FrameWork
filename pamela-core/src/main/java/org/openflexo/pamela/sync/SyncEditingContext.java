@@ -306,6 +306,14 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	}
 
 	/**
+	 * Get the value serializer for registering custom type serializers.
+	 * Applications can register their own serializers for custom types.
+	 */
+	public SyncValueSerializer getValueSerializer() {
+		return valueSerializer;
+	}
+
+	/**
 	 * Get the replica ID
 	 */
 	public String getReplicaId() {
