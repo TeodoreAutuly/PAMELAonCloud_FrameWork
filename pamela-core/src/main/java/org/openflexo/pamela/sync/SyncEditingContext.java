@@ -95,7 +95,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = syncManager;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
-		this.propertyStateManager = new PropertyStateManager(); 
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		if (this.syncManager != null) {
 			this.syncManager.addListener(this);
 		}

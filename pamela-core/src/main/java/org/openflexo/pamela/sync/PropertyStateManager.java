@@ -17,15 +17,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
-
-import org.openflexo.pamela.sync.SyncOperation;
-import org.openflexo.pamela.sync.SyncOperation.OperationType;
 import org.openflexo.pamela.AccessibleProxyObject;
+import org.openflexo.pamela.sync.SyncOperation.OperationType;
 
 public class PropertyStateManager{
-    private Map<String,Map<String,SyncOperation>> mapCrdt; 
-    private ObjectIdentityManager objectIdentityManager; 
+    private final Map<String,Map<String,SyncOperation>> mapCrdt; 
+    private final ObjectIdentityManager objectIdentityManager; 
     public PropertyStateManager(ObjectIdentityManager objectIdentityManager){
         this.mapCrdt =new HashMap<>(); 
         this.objectIdentityManager = objectIdentityManager; 
