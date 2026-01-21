@@ -13,16 +13,6 @@
 
 package org.openflexo.pamela.sync;
 
-import org.openflexo.pamela.factory.EditingContextImpl;
-import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.factory.ProxyMethodHandler;
-import org.openflexo.pamela.model.ModelProperty;
-import org.openflexo.pamela.undo.AddCommand;
-import org.openflexo.pamela.undo.AtomicEdit;
-import org.openflexo.pamela.undo.CreateCommand;
-import org.openflexo.pamela.undo.DeleteCommand;
-import org.openflexo.pamela.undo.SetCommand;
-
 import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +25,11 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.undo.AddCommand;
+import org.openflexo.pamela.undo.AtomicEdit;
+import org.openflexo.pamela.undo.CreateCommand;
+import org.openflexo.pamela.undo.DeleteCommand;
+import org.openflexo.pamela.undo.SetCommand;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -119,6 +114,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
         handlers.put(SyncOperation.SET, this::applyRemoteModification);
         handlers.put(SyncOperation.ADD, this::applyRemoteModification);
         handlers.put(SyncOperation.REMOVE, this::applyRemoteModification);
+		handlers.put(SyncOperation.REINDEX, this::applyRemoteModification);
         handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
 		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
 
@@ -367,7 +363,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 		      // Serialize oldValue if relevant (remove and set)
         if (oldValue != null && (operationType.equals(SyncOperation.SET)
-                || operationType.equals(SyncOperation.REMOVE))) {
+                || operationType.equals(SyncOperation.REMOVE)
+				|| operationType.equals(SyncOperation.REINDEX))) {
 
             String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
                                    ? valueSerializer.serializeReference(oldValue, identityManager)
@@ -377,7 +374,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			
         // Serialize newValue if relevant (add and set)
 		    if (newValue != null && (operationType.equals(SyncOperation.SET)
-                || operationType.equals(SyncOperation.ADD))) {
+                || operationType.equals(SyncOperation.ADD)
+				|| operationType.equals(SyncOperation.REINDEX))) {
             String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
                                    ? valueSerializer.serializeReference(newValue, identityManager)
                                    : valueSerializer.serialize(newValue);
@@ -987,6 +985,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 							property.getType(),
 							this
 					);
+					int index = operation.getIndex();
 
 					switch(operation.getOperationType()){
 						case "SET":
@@ -998,6 +997,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						case "REMOVE": 
 						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
 						break; 
+						case "REINDEX":
+						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
+						break;
 						default: 
 						break; 
 					}					

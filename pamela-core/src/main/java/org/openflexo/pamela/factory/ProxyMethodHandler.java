@@ -1520,6 +1520,11 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 			getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, value, getModelFactory(), getCurrentReplicaId()));
 		}
 		propertyImplementation.reindex(value, index);
+				
+		// Broadcast sync operation if connected
+		if (trackAtomicEdit) {
+			broadcastOperation(property, value, value, index, SyncOperation.REINDEX);		
+		}
 	}
 
 	private boolean isObjectAttributeEquals(Object o, String attribute, Object value) throws ModelDefinitionException {
