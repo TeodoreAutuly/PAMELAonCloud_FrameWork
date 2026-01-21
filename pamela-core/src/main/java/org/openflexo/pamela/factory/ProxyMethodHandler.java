@@ -437,8 +437,6 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 
 	private Object _invoke(Object self, Method method, Method proceed, Object[] args) throws Throwable {
 
-		// System.out.println("_invoke " + method);
-
 		// First, we iterate on all delegate implementations to look for eventual partial implementation (in this case, prioritar)
 		for (DelegateImplementation<? super I> delegateImplementation : delegateImplementations) {
 			if (delegateImplementation.handleMethod(method)) {
@@ -465,6 +463,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 									new SetCommand<>(getObject(), getModelEntity(), property, oldValue, args[0], getModelFactory(), getCurrentReplicaId()));
 						}
 					}
+					// Broadcast sync operation for implementation classes (since performSuperSetter uses trackAtomicEdit=false)
+					broadcastOperation(property, oldValue, args[0], -1, SyncOperation.SET);
 					if (property.isSerializable()) {
 						callSetModifiedAtTheEnd = true;
 					}
@@ -472,10 +472,11 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 				if (PamelaUtils.methodIsEquivalentTo(method, property.getAdderMethod())) {
 					// We have found a concrete implementation of that method as a adder call
 					// We will invoke it, but also notify UndoManager, and call setModified() after adder invoking
-					// System.out.println("DETECTS ADD with " + proceed + " instead of " + method);
 					if (getUndoManager() != null) {
 						getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory(), getCurrentReplicaId()));
 					}
+					// Broadcast sync operation for implementation classes (since performSuperAdder uses trackAtomicEdit=false)
+					broadcastOperation(property, null, args[0], -1, SyncOperation.ADD);
 					if (property.isSerializable()) {
 						callSetModifiedAtTheEnd = true;
 					}
@@ -487,6 +488,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 					if (getUndoManager() != null) {
 						getUndoManager().addEdit(new RemoveCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory(), getCurrentReplicaId()));
 					}
+					// Broadcast sync operation for implementation classes (since performSuperRemover uses trackAtomicEdit=false)
+					broadcastOperation(property, args[0], null, -1, SyncOperation.REMOVE);
 					if (property.isSerializable()) {
 						callSetModifiedAtTheEnd = true;
 					}
@@ -1493,8 +1496,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
-			System.out.println("I'm attempting to make an add broadcast");
-			broadcastOperation(property, null, value, index, SyncOperation.ADD); 			
+			broadcastOperation(property, null, value, index, SyncOperation.ADD);
 		}
 	}
 

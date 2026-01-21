@@ -247,6 +247,11 @@ public class SyncValueSerializer {
 		}
 
 		try {
+			// Handle empty list
+			if ("[]".equals(serialized) && java.util.List.class.isAssignableFrom(targetType)) {
+				return new java.util.ArrayList<>();
+			}
+
 			// Handle primitive types
 			if (targetType == String.class) {
 				return serialized;
