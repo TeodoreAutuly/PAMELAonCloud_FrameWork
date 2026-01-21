@@ -13,19 +13,34 @@
 
 package org.openflexo.pamela.sync;
 
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
-import org.openflexo.pamela.sync.SyncOperation;
+import org.openflexo.pamela.AccessibleProxyObject;
 
 public class PropertyStateManager{
-    private Map<UUID,Map<String,SyncOperation>> mapCrdt; 
+    private ObjectIdentityManager objectIdentityManager;
+    private Map<String,Map<String,SyncOperation>> mapCrdt; 
 
-    public Map<UUID,Map<String,SyncOperation>> getMapCrdt(){
+    public Map<String,Map<String,SyncOperation>> getMapCrdt(){
         return this.mapCrdt; 
     }
 
     public void storeIntoMap(SyncOperation operation){
 
+    }
+
+    private void recursiveDelete(SyncOperation operation, String initObjectId){
+
+        AccessibleProxyObject object = (AccessibleProxyObject)objectIdentityManager.getObject(initObjectId);
+        for(String property : mapCrdt.get(initObjectId).keySet()){
+            mapCrdt.get(initObjectId).put(property, operation);
+        }   
+
+        List<? extends AccessibleProxyObject> referencedObjects = object.getReferencedObjects();
+        for(AccessibleProxyObject referencedObject : referencedObjects){
+            String newObjectId = objectIdentityManager.getObjectId(referencedObject);
+            recursiveDelete(operation, newObjectId);
+        }
     }
 }
