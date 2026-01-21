@@ -171,13 +171,13 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 				}
 
 				// Handle STATE_REQUEST and STATE_RESPONSE specially
-				if (operation.getOperationType() == SyncOperation.OperationType.STATE_REQUEST) {
+				if (operation.getOperationType().equals(SyncOperation.STATE_REQUEST)) {
 					// Another replica is requesting state
 					notifyStateRequested(operation.getReplicaId());
 					return;
 				}
 
-				if (operation.getOperationType() == SyncOperation.OperationType.STATE_RESPONSE) {
+				if (operation.getOperationType().equals(SyncOperation.STATE_RESPONSE)) {
 					// Check if this response is for us (targetReplicaId stored in propertyIdentifier)
 					String targetReplicaId = operation.getPropertyIdentifier();
 					if (targetReplicaId == null || targetReplicaId.equals(replicaId)) {
@@ -342,7 +342,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		}
 
 		try {
-			SyncOperation stateRequest = new SyncOperation.Builder(SyncOperation.OperationType.STATE_REQUEST)
+			SyncOperation stateRequest = new SyncOperation.Builder(SyncOperation.STATE_REQUEST)
 					.replicaId(replicaId)
 					.objectId("state-request")
 					.entityType("StateRequest")
@@ -382,7 +382,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		}
 
 		try {
-			SyncOperation stateResponse = new SyncOperation.Builder(SyncOperation.OperationType.STATE_RESPONSE)
+			SyncOperation stateResponse = new SyncOperation.Builder(SyncOperation.STATE_RESPONSE)
 					.replicaId(replicaId)
 					.objectId("state-response")
 					.entityType("StateResponse")

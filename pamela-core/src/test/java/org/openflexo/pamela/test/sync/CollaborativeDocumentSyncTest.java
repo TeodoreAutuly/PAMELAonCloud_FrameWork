@@ -196,19 +196,18 @@ public class CollaborativeDocumentSyncTest {
 		// Find the SET operation for this specific document
 		SyncOperation setOp = null;
 		for (SyncOperation op : receivedOperationsB) {
-			if (op.getOperationType() == SyncOperation.OperationType.SET
+			if (op.getOperationType().equals(SyncOperation.SET)
 					&& "title".equals(op.getPropertyIdentifier())
 					&& docId.equals(op.getObjectId())) {
 				setOp = op;
 				break;
 			}
 		}
-
 		assertNotNull("Should have received a SET operation for title", setOp);
 		System.out.println("[Replica B] Received operation: " + setOp.getOperationType()
 				+ " on property '" + setOp.getPropertyIdentifier() + "'");
 
-		assertEquals("Operation type should be SET", SyncOperation.OperationType.SET, setOp.getOperationType());
+		assertEquals("Operation type should be SET", SyncOperation.SET, setOp.getOperationType());
 		assertEquals("Property should be 'title'", "title", setOp.getPropertyIdentifier());
 		assertEquals("New value should match", "Hello from Computer A", setOp.getNewValueSerialized());
 
@@ -653,13 +652,13 @@ public class CollaborativeDocumentSyncTest {
 		assertEquals("Should collect 5 operations", 5, collectedOperations.size());
 		
 		long createCount = collectedOperations.stream()
-				.filter(op -> op.getOperationType() == SyncOperation.OperationType.CREATE)
+				.filter(op -> op.getOperationType().equals(SyncOperation.CREATE))
 				.count();
 		long setCount = collectedOperations.stream()
-				.filter(op -> op.getOperationType() == SyncOperation.OperationType.SET)
+				.filter(op -> op.getOperationType().equals(SyncOperation.SET))
 				.count();
 		long addCount = collectedOperations.stream()
-				.filter(op -> op.getOperationType() == SyncOperation.OperationType.ADD)
+				.filter(op -> op.getOperationType().equals(SyncOperation.ADD))
 				.count();
 		
 		System.out.println("[Verification] CREATE count: " + createCount);
@@ -789,7 +788,7 @@ public class CollaborativeDocumentSyncTest {
 
 		// Verify operation content
 		SyncOperation setOp = sentOperations.stream()
-				.filter(op -> op.getOperationType() == SyncOperation.OperationType.SET)
+				.filter(op -> op.getOperationType().equals(SyncOperation.SET))
 				.findFirst().orElse(null);
 		assertNotNull("SET operation should exist", setOp);
 		assertEquals("Property should be 'author'", "author", setOp.getPropertyIdentifier());
@@ -828,7 +827,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.CREATE) {
+				if (operation.getOperationType().equals(SyncOperation.CREATE)) {
 					createLatch.countDown();
 				}
 			}
@@ -861,7 +860,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerA.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.SET 
+				if (operation.getOperationType().equals(SyncOperation.SET) 
 						&& "content".equals(operation.getPropertyIdentifier())) {
 					editLatchA.countDown();
 				}
@@ -880,7 +879,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.SET 
+				if (operation.getOperationType().equals(SyncOperation.SET) 
 						&& "title".equals(operation.getPropertyIdentifier())) {
 					editLatchB.countDown();
 				}
@@ -966,7 +965,10 @@ public class CollaborativeDocumentSyncTest {
 			@Override public void onError(Throwable e) {}
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
+				System.out.println("coucou");
+				System.out.println(evt.getPropertyName());
 				if ("STATE_RECEIVED".equals(evt.getPropertyName())) {
+					System.out.println("coucou2222");
 					String value = (String) evt.getNewValue();
 					// Parse the composite value: stateSnapshot+FROM_REPLICA_ID+fromReplicaId
 					String[] parts = value.split("FROM_REPLICA_ID", 2);
@@ -1176,7 +1178,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.CREATE) {
+				if (operation.getOperationType().equals(SyncOperation.CREATE)) {
 					createLatch.countDown();
 				}
 			}
@@ -1217,8 +1219,8 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.SET 
-						|| operation.getOperationType() == SyncOperation.OperationType.ADD) {
+				if (operation.getOperationType().equals(SyncOperation.SET) 
+						|| operation.getOperationType().equals(SyncOperation.ADD)) {
 					offlineSyncLatch.countDown();
 					System.out.println("[Replica B] Received offline change: " + operation.getOperationType());
 				}
@@ -1287,7 +1289,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.CREATE) {
+				if (operation.getOperationType().equals(SyncOperation.CREATE)) {
 					createLatch.countDown();
 				}
 			}
@@ -1322,7 +1324,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerA.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.SET 
+				if (operation.getOperationType().equals(SyncOperation.SET) 
 						&& "title".equals(operation.getPropertyIdentifier())) {
 					conflictLatchA.countDown();
 				}
@@ -1341,7 +1343,7 @@ public class CollaborativeDocumentSyncTest {
 		syncManagerB.addListener(new SyncOperationListener() {
 			@Override
 			public void onOperationReceived(SyncOperation operation) {
-				if (operation.getOperationType() == SyncOperation.OperationType.SET 
+				if (operation.getOperationType().equals(SyncOperation.SET) 
 						&& "title".equals(operation.getPropertyIdentifier())) {
 					conflictLatchB.countDown();
 				}

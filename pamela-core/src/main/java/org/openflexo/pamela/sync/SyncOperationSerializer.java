@@ -14,6 +14,7 @@
 package org.openflexo.pamela.sync;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -24,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public class SyncOperationSerializer {
 
-	private static final ObjectMapper objectMapper = new ObjectMapper();
+	private static final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
 	/**
 	 * Serialize a SyncOperation to JSON string
@@ -110,7 +111,7 @@ public class SyncOperationSerializer {
 
 		public SyncOperationDTO(SyncOperation op) {
 			this.operationId = op.getOperationId();
-			this.operationType = op.getOperationType().name();
+			this.operationType = op.getOperationType();
 			this.timestamp = op.getTimestamp();
 			this.replicaId = op.getReplicaId();
 			this.objectId = op.getObjectId();
@@ -131,7 +132,7 @@ public class SyncOperationSerializer {
 				vc = vectorClock.toVectorClock();
 			}
 
-			return new SyncOperation.Builder(SyncOperation.OperationType.valueOf(operationType))
+			return new SyncOperation.Builder(operationType)
 					.operationId(operationId)
 					.timestamp(timestamp)
 					.replicaId(replicaId)

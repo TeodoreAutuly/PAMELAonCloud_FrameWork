@@ -459,7 +459,7 @@ public class PamelaModelFactory {
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
 						if (handler != null) {						
-							handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.CREATE);
+							handler.broadcastOperation(null, null, null, -1, SyncOperation.CREATE);
 
 						}
 					}
@@ -510,7 +510,7 @@ public class PamelaModelFactory {
 					if (!syncContext.isApplyingRemoteOperation()) {
 						ProxyMethodHandler<?> handler = getHandler(returned);
 						if (handler != null) {
-							handler.broadcastOperation(null, null, null, -1, SyncOperation.OperationType.CREATE);
+							handler.broadcastOperation(null, null, null, -1, SyncOperation.CREATE);
 						}
 					}
 				}
