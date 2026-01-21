@@ -812,11 +812,15 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 	private void applyRemoteModification(SyncOperation operation){
 		Object target = identityManager.getObject(operation.getObjectId());
-		SyncOperation lastOp = propertyStateManager.getMapCrdt().get(operation.getObjectId()).get(operation.getPropertyIdentifier()); 
+		Map<String, SyncOperation> objectMap = propertyStateManager.getMapCrdt().get(operation.getObjectId());
+		SyncOperation lastOp = null;
+		if(objectMap != null)
+			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
+
 		if (target == null) 
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
 			// Else create the object 			
-			if (lastOp.getOperationType().equals(SyncOperation.OperationType.DELETE)){
+			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.DELETE)){
 				return; 
 			}
 		target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
@@ -842,7 +846,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 					switch(operation.getOperationType()){
 						case SET:
-						if (lastOp.getOperationType().equals(SyncOperation.OperationType.SET)){
+						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.SET)){
 							//If the operation received is before the last operation in local according to the vector clock do nothing
 							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
 							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1
