@@ -366,8 +366,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
         }
 
 		      // Serialize oldValue if relevant (remove and set)
-        if (oldValue != null && (operationType == SyncOperation.SET
-                || operationType == SyncOperation.REMOVE)) {
+        if (oldValue != null && (operationType.equals(SyncOperation.SET)
+                || operationType.equals(SyncOperation.REMOVE))) {
 
             String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
                                    ? valueSerializer.serializeReference(oldValue, identityManager)
@@ -376,20 +376,20 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
         }
 			
         // Serialize newValue if relevant (add and set)
-		    if (newValue != null && (operationType == SyncOperation.SET
-                || operationType == SyncOperation.ADD)) {
+		    if (newValue != null && (operationType.equals(SyncOperation.SET)
+                || operationType.equals(SyncOperation.ADD))) {
             String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
                                    ? valueSerializer.serializeReference(newValue, identityManager)
                                    : valueSerializer.serialize(newValue);
             builder.newValue(serializedNew);
         }
 		 // Index for ADD/REINDEX
-		if (operationType == SyncOperation.ADD || operationType == SyncOperation.REINDEX) {
+		if (operationType.equals(SyncOperation.ADD) || operationType.equals(SyncOperation.REINDEX)) {
             builder.index(index);
         }
 		SyncOperation operation = builder.build();
 		syncManager.publishOperation(operation);
-		if(operationType ==SyncOperation.CREATE){
+		if(operationType.equals(SyncOperation.CREATE)){
 		createdObjects.put(objectId, Boolean.TRUE);
 			
 		// Then send any buffered operations for this object

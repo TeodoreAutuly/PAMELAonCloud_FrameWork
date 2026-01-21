@@ -120,13 +120,13 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         			}
         			
                     // Handle STATE_REQUEST and STATE_RESPONSE specially
-        			if (operation.getOperationType() == SyncOperation.STATE_REQUEST) {
+        			if (operation.getOperationType().equals(SyncOperation.STATE_REQUEST)) {
         				// Another replica is requesting state
         				notifyStateRequested(operation.getReplicaId());
         				return;
         			}
 
-                    if (operation.getOperationType() == SyncOperation.STATE_RESPONSE) {
+                    if (operation.getOperationType().equals(SyncOperation.STATE_RESPONSE)) {
         				// Check if this response is for us (targetReplicaId stored in propertyIdentifier)
         				String targetReplicaId = operation.getPropertyIdentifier();
         				if (targetReplicaId == null || targetReplicaId.equals(replicaId)) {
