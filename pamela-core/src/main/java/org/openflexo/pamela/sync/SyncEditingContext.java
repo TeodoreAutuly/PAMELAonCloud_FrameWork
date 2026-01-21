@@ -24,8 +24,8 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
-import org.openflexo.pamela.model.PropertyStateManager; 
 import org.openflexo.pamela.sync.SyncOperation.OperationType;
+import org.openflexo.pamela.sync.PropertyStateManager;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -42,7 +42,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	private final ObjectIdentityManager identityManager;
 	private final SyncValueSerializer valueSerializer;
 	private PamelaModelFactory modelFactory;
-	private PropertyStateManager propertyStateManager; 
+	private PropertyStateManager propertyStateManager;
 	// Flag to prevent recursive sync when applying remote operations
 	private final ThreadLocal<Boolean> applyingRemoteOperation = ThreadLocal.withInitial(() -> false);
 
