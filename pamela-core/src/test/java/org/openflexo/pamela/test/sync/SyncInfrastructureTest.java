@@ -350,5 +350,10 @@ public class SyncInfrastructureTest {
 		public String getReplicaId() {
 			return "test-replica";
 		}
+
+		@Override
+		public VectorClock getVectorClock(){
+			return new VectorClock(getReplicaId());
+		}
 	}
 }
