@@ -16,10 +16,12 @@ import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.openflexo.pamela.AccessibleProxyObject;
 import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
@@ -228,9 +230,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (operationType == SyncOperation.OperationType.ADD || operationType == SyncOperation.OperationType.REINDEX) {
             builder.index(index);
         }
+
 		SyncOperation operation = builder.build();
 		propertyStateManager.storeIntoMap(operation);
-		System.out.println("Broadcast : " + operation.getOperationType() + " : " + " : " + operation.getObjectId() + " : " + operation.getPropertyIdentifier() + " : " + operation.getOldValueSerialized() + " : " + operation.getNewValueSerialized() + " : " + operation.getIndex());
 		syncManager.publishOperation(operation);
 		if(operationType ==SyncOperation.OperationType.CREATE){
 		createdObjects.put(objectId, Boolean.TRUE);
@@ -285,7 +287,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			logger.warning("ModelFactory not set, cannot apply remote operation");
 			return;
 		}
-		propertyStateManager.storeIntoMap(operation);
+	
 		applyingRemoteOperation.set(true);
 		currentRemoteReplicaId.set(operation.getReplicaId());
 		try {
@@ -297,7 +299,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					crdtStrategy.applyRemoteDelete(operation,crdtContext);
 					break;
 				case SET: case ADD: case REMOVE: case REINDEX:
-					crdtStrategy.applyRemoteModification(operation,crdtContext);
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
 					break;
 				default:
 					logger.warning("Unknown operation type: " + operation.getOperationType());
@@ -814,46 +816,5 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					.replace("\\n", "\n")
 					.replace("\\r", "\r")
 					.replace("\\t", "\t");
-	}
-
-	/**
-	 * Ensure a remote object exists, creating it if necessary.
-	 * This handles the case where operations arrive out of order.
-	 * 
-	 * @param objectId the object ID
-	 * @param entityType the entity class name
-	 * @return the object, or null if creation failed
-	 */
-	private Object ensureRemoteObjectExists(String objectId, String entityType) {					
-		if (entityType == null) {
-			logger.warning("Cannot create object without entityType for ID: " + objectId);
-			return null;
-		}
-
-		try {
-			Class<?> entityClass = Class.forName(entityType);
-			
-			// Create using _newInstance (bypasses initializer requirement)
-			Object newObject = modelFactory._newInstance(entityClass, false);
-			
-			// Mark as deserializing to allow setters without initialization
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(newObject);
-			if (handler != null) {
-				handler.setDeserializing(true);
-			}
-			
-			// Register with the specified ID
-			identityManager.registerObject(newObject, objectId);
-			
-			// Mark as known so SET operations work properly
-			createdObjects.put(objectId, Boolean.TRUE);
-			
-			logger.fine("Auto-created remote object: " + objectId);
-			return newObject;
-			
-		} catch (Exception e) {
-			logger.log(Level.WARNING, "Failed to auto-create remote object: " + objectId, e);
-			return null;
-		}
-	}
+	}	
 }
