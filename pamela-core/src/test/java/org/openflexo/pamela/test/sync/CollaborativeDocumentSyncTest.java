@@ -14,9 +14,6 @@
 package org.openflexo.pamela.test.sync;
 
 import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
-import static org.junit.Assert.*;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -24,6 +21,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.After;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.openflexo.pamela.factory.PamelaModelFactory;
@@ -895,9 +898,10 @@ public class CollaborativeDocumentSyncTest {
 			}
 		});
 
+
 		System.out.println("[Replica A] Setting title");
 		docA.setTitle("Collaborative Document");
-		
+
 		System.out.println("[Replica B] Setting content");
 		docB.setContent("Content written by User B");
 
