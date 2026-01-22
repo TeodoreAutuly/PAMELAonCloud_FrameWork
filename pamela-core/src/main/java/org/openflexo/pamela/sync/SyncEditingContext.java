@@ -1122,8 +1122,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			} else {
 				// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
 				target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
-			}
-			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
+			}			
 		}
 		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
