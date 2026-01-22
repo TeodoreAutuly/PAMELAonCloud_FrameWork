@@ -80,7 +80,6 @@ public interface SyncManager {
 	/**
 	 * Disconnects from the messaging system and releases resources.
 	 */
-	@Override
 	default void close() {
 		// Default implementation does nothing
 	}
