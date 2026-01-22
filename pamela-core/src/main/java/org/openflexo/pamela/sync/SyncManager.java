@@ -67,6 +67,8 @@ public interface SyncManager {
 		// Default implementation does nothing
 	}
 
+	VectorClock getVectorClock();
+
 	/**
 	 * Sends the current state as a response to a state request.
 	 * 

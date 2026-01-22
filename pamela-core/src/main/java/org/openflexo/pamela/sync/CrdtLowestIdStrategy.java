@@ -112,13 +112,11 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 	@Override
 	public void applyRemoteModification(SyncOperation operation, CrdtContext crdtContext,
 			SyncEditingContext syncContext) {
-Object target = crdtContext.identityManager.getObject(operation.getObjectId());
+		Object target = crdtContext.identityManager.getObject(operation.getObjectId());
 		Map<String, SyncOperation> objectMap = crdtContext.propertyStateManager.getMapCrdt().get(operation.getObjectId());
 		SyncOperation lastOp = null;
 		if(objectMap != null)
 			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
-
-		if(lastOp!=null)
 
 		if (target == null) {
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 

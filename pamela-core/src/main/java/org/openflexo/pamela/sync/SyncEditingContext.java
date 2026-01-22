@@ -230,6 +230,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (operationType == SyncOperation.OperationType.ADD || operationType == SyncOperation.OperationType.REINDEX) {
             builder.index(index);
         }
+		VectorClock clock = syncManager.getVectorClock();
+		builder.vectorClock(clock.copy());
 
 		SyncOperation operation = builder.build();
 		propertyStateManager.storeIntoMap(operation);

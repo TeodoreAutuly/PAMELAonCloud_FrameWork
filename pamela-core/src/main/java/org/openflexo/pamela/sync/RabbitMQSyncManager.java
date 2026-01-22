@@ -91,7 +91,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 		this.routingKey = routingKey;
 		this.useSsl = useSsl;
 		this.replicaId = UUID.randomUUID().toString();
-		this.vectorClock = new VectorClock(replicaId);
+		this.vectorClock = new VectorClock(this.replicaId);
 		this.pcs = new PropertyChangeSupport(this);
 	}
 
@@ -105,6 +105,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	/**
 	 * Get the current vector clock
 	 */
+	@Override
 	public VectorClock getVectorClock() {
 		return vectorClock;
 	}
