@@ -105,6 +105,7 @@ public class RabbitMQSyncManager implements SyncManager, AutoCloseable {
 	/**
 	 * Get the current vector clock
 	 */
+	@Override
 	public VectorClock getVectorClock() {
 		return vectorClock;
 	}

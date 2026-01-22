@@ -80,6 +80,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	// Flag to track if state has been received (to avoid multiple requests)
 	private volatile boolean stateReceived = false;
+	private CrdtLowestIdStrategy crdtStrategy; 
+	private CrdtContext crdtContext; 
 
 	// Root objects by entity type - these are used instead of creating new ones for remote operations
 	// Key: entity class name, Value: the root object for that type
@@ -95,6 +97,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
 		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
+		this.crdtStrategy = new CrdtLowestIdStrategy(); 
+		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
 		registerDefaultHandlers();
 	}
 
@@ -109,6 +113,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
 		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
+		this.crdtStrategy = new CrdtLowestIdStrategy(); 
+		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
 		this.customUndoManager = null;
 		registerDefaultHandlers();
 	}
@@ -299,6 +305,8 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		if (this.syncManager != null) {
 			this.syncManager.addListener(this);
 		}
+		this.crdtStrategy = new CrdtLowestIdStrategy(); 
+		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
 		registerDefaultHandlers();
 	}
 
@@ -485,6 +493,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (operationType.equals(SyncOperation.ADD) || operationType.equals(SyncOperation.REINDEX)) {
             builder.index(index);
         }
+		VectorClock clock = syncManager.getVectorClock();
+		builder.vectorClock(clock.copy());
 
 		SyncOperation operation = builder.build();
 		propertyStateManager.storeIntoMap(operation);
@@ -538,26 +548,27 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			logger.warning("ModelFactory not set, cannot apply remote operation");
 			return;
 		}
-
-		// Debug logging for received operations
-		logger.info("Received " + operation.getOperationType() + " operation: objectId=" +
-				operation.getObjectId() + ", entityType=" + operation.getEntityType() +
-				", property=" + operation.getPropertyIdentifier());
-
-        applyingRemoteOperation.set(true);
-        try {
-            String type = operation.getOperationType();
-
-            // DYNAMISME : On cherche le handler dans la Map au lieu d'un switch
-            RemoteOperationHandler handler = handlers.get(type);
-
-            if (handler != null) {
-                handler.handle(operation);
-            } else {
-                logger.warning("Aucun handler trouvé pour l'opération : " + type);
-            }
-        } finally {
-            applyingRemoteOperation.set(false);
+	
+		applyingRemoteOperation.set(true);
+		currentRemoteReplicaId.set(operation.getReplicaId());
+		try {
+			switch (operation.getOperationType()) {
+				case "CREATE":
+					crdtStrategy.applyRemoteCreate(operation,crdtContext);
+					break;
+				case "DELETE":
+					crdtStrategy.applyRemoteDelete(operation,crdtContext);
+					break;
+				case "SET": case "ADD": case "REMOVE": case "REINDEX":
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
+					break;
+				default:
+					logger.warning("Unknown operation type: " + operation.getOperationType());
+			}
+		} catch (Exception e) {
+			logger.log(Level.SEVERE, "Failed to apply remote operation: " + operation, e);
+		} finally {
+			applyingRemoteOperation.set(false);
 			currentRemoteReplicaId.remove();
 
         }
@@ -1095,204 +1106,5 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					.replace("\\n", "\n")
 					.replace("\\r", "\r")
 					.replace("\\t", "\t");
-	}
-
-	// Private methods for applying remote operations
-
-	private void applyRemoteModification(SyncOperation operation){
-		Object target = identityManager.getObject(operation.getObjectId());
-		Map<String, SyncOperation> objectMap = propertyStateManager.getMapCrdt().get(operation.getObjectId());
-		SyncOperation lastOp = null;
-		if(objectMap != null)
-			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
-
-		if (target == null) {
-			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
-			// Else create the object 			
-			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.DELETE)){
-				return; 
-			}
-			// Check if we have a root object of this type that we should use instead of creating a new one
-			Object rootObject = getRootObject(operation.getEntityType());
-			if (rootObject != null) {
-			// Use the root object and map the remote ID to it
-				logger.info("Using root object for remote operation on " + operation.getEntityType());
-				identityManager.registerObject(rootObject, operation.getObjectId());
-				target = rootObject;
-			} else {
-				// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
-				target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
-			}			
-		}
-		try { 
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
-			if (handler != null) {
-				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
-				if (property != null) {
-					// Skip properties with ignoreType=true (editor-local state)
-					if (property.ignoreType()) {
-						logger.fine("Skipping ignoreType property: " + operation.getPropertyIdentifier());
-						return;
-					}
-
-					String value;
-					if(operation.getOperationType().equals("REMOVE")){
-						value = operation.getOldValueSerialized();
-					}
-					else{value= operation.getNewValueSerialized();}
-
-					// Skip if value is null or empty (meaningless operation)
-					if (value == null || value.isEmpty()) {
-						logger.fine("Skipping operation with empty value for: " + operation.getPropertyIdentifier());
-						return;
-					}
-
-					Object newValue = valueSerializer.deserialize(
-							value,
-							property.getType(),
-							this
-					);
-					int index = operation.getIndex();
-
-					switch(operation.getOperationType()){
-						case "SET":
-						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.SET)){
-							//If the operation received is before the last operation in local according to the vector clock do nothing
-							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
-							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1 ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 && UUID.fromString(lastOp.getReplicaId()).compareTo(UUID.fromString(operation.getReplicaId()))==-1)){
-								return; 
-							}
-							else {
-								handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
-							}						
-						}else{
-							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
-						}				
-						break; 
-						case "ADD": 	
-						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
-						// Finalize deserialization for the added object now that it's in the model
-						if (newValue != null) {
-							ProxyMethodHandler<?> addedHandler = modelFactory.getHandler(newValue);
-							if (addedHandler != null && addedHandler.isDeserializing()) {
-								addedHandler.setDeserializing(false);
-								logger.fine("Finalized deserialization for added object: " + newValue);
-							}
-						}
-						break; 
-						case "REMOVE": 
-						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
-						break; 
-						case "REINDEX":
-						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
-						default: 
-						break; 
-					}		
-					propertyStateManager.storeIntoMap(operation);			
-				}
-			}
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply " + operation.getOperationType() +
-					" on property '" + operation.getPropertyIdentifier() +
-					"': serialized='" + operation.getNewValueSerialized() + "'", e);
-		}
-	}
-
-	
-	private void applyRemoteCreate(SyncOperation operation) {
-		// Check if object already exists
-		if (identityManager.hasObject(operation.getObjectId())) {
-			logger.info("Object already exists, skipping CREATE: " + operation.getObjectId());
-			return;
-		}
-
-		try {
-			// Load the entity class
-			Class<?> entityClass = Class.forName(operation.getEntityType());
-
-			// Create a new instance using _newInstance (like deserialization does)
-			// This creates the object without requiring the initializer
-			Object newObject = modelFactory._newInstance(entityClass, false);
-
-			// Mark the object as deserializing so it can receive property updates
-			// without failing the "uninitialized" check
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(newObject);
-			if (handler != null) {
-				handler.setDeserializing(true);
-			}
-
-			// Register with the specified ID
-			identityManager.registerObject(newObject, operation.getObjectId());
-
-			// Mark as known so SET operations work properly
-			createdObjects.put(operation.getObjectId(), Boolean.TRUE);
-
-			logger.info("Created remote object: " + operation.getEntityType() + " with ID " + operation.getObjectId());
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote CREATE", e);
-		}
-	}
-
-	private void applyRemoteDelete(SyncOperation operation) {
-		Object target = identityManager.getObject(operation.getObjectId());
-		if (target == null) {
-			logger.fine("Object already deleted or not found: " + operation.getObjectId());
-			return;
-		}
-
-		try {
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
-			if (handler != null) {
-				handler.invokeDeleter(target);
-			}
-
-			identityManager.unregisterById(operation.getObjectId());
-
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, "Failed to apply remote DELETE", e);
-		}
-	
-	}
-
-	/**
-	 * Ensure a remote object exists, creating it if necessary.
-	 * This handles the case where operations arrive out of order.
-	 * 
-	 * @param objectId the object ID
-	 * @param entityType the entity class name
-	 * @return the object, or null if creation failed
-	 */
-	private Object ensureRemoteObjectExists(String objectId, String entityType) {					
-		if (entityType == null) {
-			logger.warning("Cannot create object without entityType for ID: " + objectId);
-			return null;
-		}
-
-		try {
-			Class<?> entityClass = Class.forName(entityType);
-			
-			// Create using _newInstance (bypasses initializer requirement)
-			Object newObject = modelFactory._newInstance(entityClass, false);
-			
-			// Mark as deserializing to allow setters without initialization
-			ProxyMethodHandler<?> handler = modelFactory.getHandler(newObject);
-			if (handler != null) {
-				handler.setDeserializing(true);
-			}
-			
-			// Register with the specified ID
-			identityManager.registerObject(newObject, objectId);
-			
-			// Mark as known so SET operations work properly
-			createdObjects.put(objectId, Boolean.TRUE);
-			
-			logger.fine("Auto-created remote object: " + objectId);
-			return newObject;
-			
-		} catch (Exception e) {
-			logger.log(Level.WARNING, "Failed to auto-create remote object: " + objectId, e);
-			return null;
-		}
-	}
+	}	
 }
