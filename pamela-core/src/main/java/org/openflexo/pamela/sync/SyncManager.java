@@ -69,11 +69,18 @@ public interface SyncManager {
 
 	/**
 	 * Sends the current state as a response to a state request.
-	 * 
+	 *
 	 * @param stateSnapshot the serialized state snapshot
 	 * @param targetReplicaId the replica that requested the state (optional, null for broadcast)
 	 */
 	default void sendStateResponse(String stateSnapshot, String targetReplicaId) {
+		// Default implementation does nothing
+	}
+
+	/**
+	 * Disconnects from the messaging system and releases resources.
+	 */
+	default void close() {
 		// Default implementation does nothing
 	}
 
