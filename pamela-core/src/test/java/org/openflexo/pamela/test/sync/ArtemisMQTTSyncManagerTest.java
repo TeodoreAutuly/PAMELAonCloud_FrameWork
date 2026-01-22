@@ -292,7 +292,7 @@ public class ArtemisMQTTSyncManagerTest {
 
             syncManager.connect();
 
-            SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
+            SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
                     .replicaId(syncManager.getReplicaId())
                     .objectId("test-object")
                     .entityType("TestEntity")
@@ -312,7 +312,7 @@ public class ArtemisMQTTSyncManagerTest {
 
     @Test
     void testPublishOperationWhenNotConnected() {
-        SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
+        SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
                 .replicaId(syncManager.getReplicaId())
                 .objectId("test-object")
                 .entityType("TestEntity")
@@ -332,7 +332,7 @@ public class ArtemisMQTTSyncManagerTest {
 
             VectorClock initialClock = syncManager.getVectorClock().copy();
 
-            SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
+            SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
                     .replicaId(syncManager.getReplicaId())
                     .objectId("test-object")
                     .entityType("TestEntity")
@@ -451,7 +451,7 @@ public class ArtemisMQTTSyncManagerTest {
 
             MqttCallback callback = callbackCaptor.getValue();
 
-            SyncOperation testOperation = new SyncOperation.Builder(SyncOperation.OperationType.SET)
+            SyncOperation testOperation = new SyncOperation.Builder(SyncOperation.SET)
                     .replicaId("other-replica")
                     .objectId("test-object")
                     .entityType("TestEntity")
@@ -492,7 +492,7 @@ public class ArtemisMQTTSyncManagerTest {
             MqttCallback callback = callbackCaptor.getValue();
 
             // Operation from this replica (should be ignored)
-            SyncOperation testOperation = new SyncOperation.Builder(SyncOperation.OperationType.SET)
+            SyncOperation testOperation = new SyncOperation.Builder(SyncOperation.SET)
                     .replicaId(syncManager.getReplicaId())
                     .objectId("test-object")
                     .entityType("TestEntity")
@@ -531,7 +531,7 @@ public class ArtemisMQTTSyncManagerTest {
 
             MqttCallback callback = callbackCaptor.getValue();
 
-            SyncOperation stateRequest = new SyncOperation.Builder(SyncOperation.OperationType.STATE_REQUEST)
+            SyncOperation stateRequest = new SyncOperation.Builder(SyncOperation.STATE_REQUEST)
                     .replicaId("other-replica")
                     .objectId("state-request")
                     .entityType("StateRequest")
@@ -570,7 +570,7 @@ public class ArtemisMQTTSyncManagerTest {
 
             MqttCallback callback = callbackCaptor.getValue();
 
-            SyncOperation stateResponse = new SyncOperation.Builder(SyncOperation.OperationType.STATE_RESPONSE)
+            SyncOperation stateResponse = new SyncOperation.Builder(SyncOperation.STATE_RESPONSE)
                     .replicaId("other-replica")
                     .objectId("state-response")
                     .entityType("StateResponse")
@@ -654,7 +654,7 @@ public class ArtemisMQTTSyncManagerTest {
             VectorClock otherClock = new VectorClock();
             otherClock.increment("other-replica");
 
-            SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.SET)
+            SyncOperation operation = new SyncOperation.Builder(SyncOperation.SET)
                     .replicaId("other-replica")
                     .objectId("test-object")
                     .entityType("TestEntity")
@@ -698,7 +698,7 @@ public class ArtemisMQTTSyncManagerTest {
                 serializerMock.when(() -> SyncOperationSerializer.serializeToBytes(any()))
                         .thenReturn(new byte[]{1, 2, 3});
 
-                SyncOperation operation = new SyncOperation.Builder(SyncOperation.OperationType.CREATE)
+                SyncOperation operation = new SyncOperation.Builder(SyncOperation.CREATE)
                         .replicaId(syncManager.getReplicaId())
                         .objectId("test-object")
                         .entityType("TestEntity")
