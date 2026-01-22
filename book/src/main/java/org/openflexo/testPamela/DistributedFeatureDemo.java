@@ -322,8 +322,13 @@ public class DistributedFeatureDemo {
             System.out.println("[" + replicaName + "] ✗ Book not found: " + title);
             return;
         }
+        if (library.getBooks().size() > newIndex ) {
+        	library.moveBookToIndex(book, newIndex);
+        } else {
+        	System.out.println("[" + replicaName + "] ✗ Index out of range");
+        	return;
+        }
         
-        library.moveBookToIndex(book, newIndex);
         System.out.println("[" + replicaName + "] ✓ MOVE: Moved '" + title + "' to index " + newIndex);
         System.out.println("    → This triggers REINDEX operation broadcast to all replicas");
     }

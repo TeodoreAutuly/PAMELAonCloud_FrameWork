@@ -1,3 +1,8 @@
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.openflexo.org/artifactory/openflexo-deps' }
+}
+
 dependencies {
   api flexoUtils()
   api connieJava()
@@ -18,11 +23,32 @@ dependencies {
   implementation 'org.apache.activemq:artemis-mqtt-protocol:2.33.0'
   implementation 'org.apache.activemq:artemis-core-client:2.33.0'
   implementation 'org.apache.activemq:artemis-server:2.33.0'
+
+  testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.1'
+  testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.1'
+  testImplementation "junit:junit:4.13.2"
+  testRuntimeOnly "org.junit.vintage:junit-vintage-engine:5.10.1"
+  testImplementation 'org.mockito:mockito-core:5.11.0'
+  // testImplementation 'org.mockito:mockito-inline:5.11.0'
+  testImplementation 'org.mockito:mockito-junit-jupiter:5.11.0'
+
+  implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
+
 }
-// /Users/fdagnat/git/pamela/pamela-core/src/main/java/org/openflexo/pamela/factory/ModelFactory.java:399: error: incompatible types: Class<CAP#1> cannot be converted to Class<? extends I>
-//                        return proxyFactory.getSuperclass();
-//                                                         ^
-//  where I is a type-variable:
-//    I extends Object declared in method <I>getImplementingClassForInterface(Class<I>)
-//  where CAP#1 is a fresh type-variable:
-//    CAP#1 extends Object from capture of ?
+
+test {
+  useJUnitPlatform()
+  // important for tests that use a fixed port / global resources
+  maxParallelForks = 1
+  forkEvery = 0
+  finalizedBy jacocoTestReport
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        html.required = true
+        html.outputLocation = layout.buildDirectory.dir('reports/jacoco')
+    }
+}
+

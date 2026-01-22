@@ -153,7 +153,7 @@ public class SyncInfrastructureTest {
 		VectorClock clock = new VectorClock();
 		clock.increment("replica1");
 
-		SyncOperation original = new SyncOperation.Builder(SyncOperation.OperationType.SET)
+		SyncOperation original = new SyncOperation.Builder(SyncOperation.SET)
 				.objectId("obj-123")
 				.entityType("CollaborativeDocument")
 				.propertyIdentifier("title")
@@ -183,7 +183,7 @@ public class SyncInfrastructureTest {
 
 	@Test
 	public void testSyncOperationBytesSerialization() throws Exception {
-		SyncOperation original = new SyncOperation.Builder(SyncOperation.OperationType.ADD)
+		SyncOperation original = new SyncOperation.Builder(SyncOperation.ADD)
 				.objectId("obj-456")
 				.entityType("CollaborativeDocument")
 				.propertyIdentifier("tags")
@@ -199,7 +199,7 @@ public class SyncInfrastructureTest {
 
 		SyncOperation deserialized = serializer.deserializeFromBytes(bytes);
 		assertNotNull("Should deserialize from bytes", deserialized);
-		assertEquals(SyncOperation.OperationType.ADD, deserialized.getOperationType());
+		assertEquals(SyncOperation.ADD, deserialized.getOperationType());
 		assertEquals("tags", deserialized.getPropertyIdentifier());
 	}
 
@@ -219,7 +219,7 @@ public class SyncInfrastructureTest {
 		
 		SyncOperation op = findOperationByProperty("title");
 		assertNotNull("Should have title operation", op);
-		assertEquals(SyncOperation.OperationType.SET, op.getOperationType());
+		assertEquals(SyncOperation.SET, op.getOperationType());
 		assertEquals("Test Title", op.getNewValueSerialized());
 	}
 
@@ -235,10 +235,10 @@ public class SyncInfrastructureTest {
 		// Check that an ADD operation was captured
 		SyncOperation op = findOperationByProperty("tags");
 		assertNotNull("Should have tags operation", op);
-		assertEquals(SyncOperation.OperationType.ADD, op.getOperationType());
+		assertEquals(SyncOperation.ADD, op.getOperationType());
 		assertEquals("java", op.getNewValueSerialized());
 	}
-
+	
 	@Test
 	public void testRemoveOperationCapture() {
 		capturedOperations.clear();
@@ -254,7 +254,7 @@ public class SyncInfrastructureTest {
 		// Check that a REMOVE operation was captured
 		SyncOperation op = findOperationByProperty("tags");
 		assertNotNull("Should have tags operation", op);
-		assertEquals(SyncOperation.OperationType.REMOVE, op.getOperationType());
+		assertEquals(SyncOperation.REMOVE, op.getOperationType());
 	}
 
 	@Test
@@ -297,7 +297,7 @@ public class SyncInfrastructureTest {
 		// Should capture the ADD operation for sections
 		SyncOperation op = findOperationByProperty("sections");
 		assertNotNull("Should have sections ADD operation", op);
-		assertEquals(SyncOperation.OperationType.ADD, op.getOperationType());
+		assertEquals(SyncOperation.ADD, op.getOperationType());
 	}
 
 	// ========== Helper Methods ==========
