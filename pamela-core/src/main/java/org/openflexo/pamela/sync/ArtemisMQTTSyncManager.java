@@ -66,7 +66,7 @@ public class ArtemisMQTTSyncManager implements SyncManager, AutoCloseable {
         this.routingKey = routingKey;
         this.useSsl = useSsl;
         this.replicaId = UUID.randomUUID().toString();
-        this.vectorClock = new VectorClock();
+        this.vectorClock = new VectorClock(this.replicaId);
         this.mqttTopic = exchangeName + "/" + routingKey;
 		this.pcs = new PropertyChangeSupport(this);
     }

@@ -17,14 +17,18 @@ import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.openflexo.pamela.AccessibleProxyObject;
 import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.sync.SyncOperation;
+
 import org.openflexo.pamela.undo.AddCommand;
 import org.openflexo.pamela.undo.AtomicEdit;
 import org.openflexo.pamela.undo.CreateCommand;
@@ -48,6 +52,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	private final ObjectIdentityManager identityManager;
 	private final SyncValueSerializer valueSerializer;
 	private PamelaModelFactory modelFactory;
+	private PropertyStateManager propertyStateManager;
 	private org.openflexo.pamela.undo.UndoManager customUndoManager;
     
 
@@ -89,6 +94,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		registerDefaultHandlers();
 	}
 
@@ -102,6 +108,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = null;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		this.customUndoManager = null;
 		registerDefaultHandlers();
 	}
@@ -288,6 +295,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.syncManager = syncManager;
 		this.identityManager = new ObjectIdentityManager();
 		this.valueSerializer = new SyncValueSerializer();
+		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		if (this.syncManager != null) {
 			this.syncManager.addListener(this);
 		}
@@ -345,6 +353,10 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	 */
 	public boolean isApplyingRemoteOperation() {
 		return applyingRemoteOperation.get();
+	}
+	
+	public PropertyStateManager getPropertyStateManager() {
+		return this.propertyStateManager;
 	}
 
 	/**
@@ -473,7 +485,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (operationType.equals(SyncOperation.ADD) || operationType.equals(SyncOperation.REINDEX)) {
             builder.index(index);
         }
+
 		SyncOperation operation = builder.build();
+		propertyStateManager.storeIntoMap(operation);
 		syncManager.publishOperation(operation);
 		if(operationType.equals(SyncOperation.CREATE)){
 		createdObjects.put(objectId, Boolean.TRUE);
@@ -1087,21 +1101,30 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 	private void applyRemoteModification(SyncOperation operation){
 		Object target = identityManager.getObject(operation.getObjectId());
+		Map<String, SyncOperation> objectMap = propertyStateManager.getMapCrdt().get(operation.getObjectId());
+		SyncOperation lastOp = null;
+		if(objectMap != null)
+			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
+
 		if (target == null) {
+			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
+			// Else create the object 			
+			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.DELETE)){
+				return; 
+			}
 			// Check if we have a root object of this type that we should use instead of creating a new one
 			Object rootObject = getRootObject(operation.getEntityType());
 			if (rootObject != null) {
-				// Use the root object and map the remote ID to it
+			// Use the root object and map the remote ID to it
 				logger.info("Using root object for remote operation on " + operation.getEntityType());
 				identityManager.registerObject(rootObject, operation.getObjectId());
 				target = rootObject;
 			} else {
 				// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
 				target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
-			}
+			}			
 		}
-
-		try {
+		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
 			if (handler != null) {
 				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
@@ -1131,17 +1154,22 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					);
 					int index = operation.getIndex();
 
-					// Debug logging
-					logger.info("Applying " + operation.getOperationType() + " on property '" +
-							operation.getPropertyIdentifier() + "': serialized='" + value +
-							"', deserializedValue=" + (newValue != null ? newValue.getClass().getSimpleName() + "@" + System.identityHashCode(newValue) : "null"));
-
 					switch(operation.getOperationType()){
 						case "SET":
-						handler.invokeSetter(operation.getPropertyIdentifier(), newValue);
-						logger.info("SET completed on " + operation.getPropertyIdentifier());
-						break;
-						case "ADD":
+						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.SET)){
+							//If the operation received is before the last operation in local according to the vector clock do nothing
+							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
+							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1 ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 && UUID.fromString(lastOp.getReplicaId()).compareTo(UUID.fromString(operation.getReplicaId()))==-1)){
+								return; 
+							}
+							else {
+								handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
+							}						
+						}else{
+							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
+						}				
+						break; 
+						case "ADD": 	
 						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
 						// Finalize deserialization for the added object now that it's in the model
 						if (newValue != null) {
@@ -1151,18 +1179,16 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 								logger.fine("Finalized deserialization for added object: " + newValue);
 							}
 						}
-						logger.info("ADD completed: added " + newValue + " to " + operation.getPropertyIdentifier());
-						break;
-						case "REMOVE":
-						handler.invokeRemover(operation.getPropertyIdentifier(), newValue);
-						logger.info("REMOVE completed on " + operation.getPropertyIdentifier());
-						break;
-            case "REINDEX":
+						break; 
+						case "REMOVE": 
+						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
+						break; 
+						case "REINDEX":
 						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
-						break;
-						default:
-						break;
-					}
+						default: 
+						break; 
+					}		
+					propertyStateManager.storeIntoMap(operation);			
 				}
 			}
 		} catch (Exception e) {
