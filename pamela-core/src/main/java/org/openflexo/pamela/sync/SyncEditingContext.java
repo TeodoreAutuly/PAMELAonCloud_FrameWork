@@ -16,10 +16,12 @@ import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.openflexo.pamela.AccessibleProxyObject;
 import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
@@ -277,7 +279,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			logger.warning("ModelFactory not set, cannot apply remote operation");
 			return;
 		}
-		propertyStateManager.storeIntoMap(operation);
+	
 		applyingRemoteOperation.set(true);
 		currentRemoteReplicaId.set(operation.getReplicaId());
 		try {
@@ -816,7 +818,10 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		SyncOperation lastOp = null;
 		if(objectMap != null)
 			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
-
+		System.out.println("Object Map of replica id="+this.getReplicaId()+" : "+objectMap);
+		if(lastOp!=null)
+			System.out.println("LastOP : id = "+lastOp.getOperationId()+", clock = "+lastOp.getVectorClock()+", new op : id="+operation.getOperationId()+", clock="+operation.getVectorClock());
+		
 		if (target == null) 
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
 			// Else create the object 			
@@ -835,7 +840,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						value = operation.getOldValueSerialized(); 
 					}
 					else{value= operation.getNewValueSerialized();}
-					System.out.println("TEST applyRemoteModification : "+operation.getOldValueSerialized()+ " : "+operation.getNewValueSerialized());
+					System.out.println("Replica "+this.getReplicaId()+" is applying a remote operation from "+operation.getReplicaId()+" with values : "+operation.getOldValueSerialized()+ " : "+operation.getNewValueSerialized());
 
 					Object newValue = valueSerializer.deserialize(						
 							value,
@@ -849,15 +854,18 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.SET)){
 							//If the operation received is before the last operation in local according to the vector clock do nothing
 							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
-							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1
-							   ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 
-							   && lastOp.getReplicaId().charAt(0) < operation.getReplicaId().charAt(0))){
+							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1 ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 && UUID.fromString(lastOp.getReplicaId()).compareTo(UUID.fromString(operation.getReplicaId()))==-1)){
 								return; 
 							}
 							else {
+								System.out.println("The Replica " + this.getReplicaId()+" is applying a remote SET operation : "+operation);
 								handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
 							}						
-						}						
+						}else{
+							System.out.println("Replica "+this.getReplicaId()+" is invoking a first set operation"+((AccessibleProxyObject)target).performSuperGetter(property.getPropertyIdentifier()));
+							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
+							System.out.println("Replica "+this.getReplicaId()+" has changed its property "+property+ " to "+((AccessibleProxyObject)target).performSuperGetter(property.getPropertyIdentifier()));
+						}				
 						break; 
 						case ADD: 	
 						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
@@ -869,7 +877,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
 						default: 
 						break; 
-					}					
+					}		
+					propertyStateManager.storeIntoMap(operation);			
 				}
 			}
 		} catch (Exception e) {

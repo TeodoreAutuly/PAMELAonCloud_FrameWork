@@ -1231,6 +1231,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		}
 
 		try {
+			System.out.println("Replica "+this.getCurrentReplicaId()+" is using invokeSetter inside ProxyMethodHandler with property "+property+" and new value "+value);
 			property.getSetterMethod().invoke(getObject(), value);
 		} catch (IllegalArgumentException e) {
 			throw new ModelExecutionException(e);
@@ -1329,6 +1330,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	}
 
 	public void invokeSetter(String propertyIdentifier, Object value) throws ModelDefinitionException {
+		System.out.println("Replica "+this.getCurrentReplicaId()+" is calling invokeSetter with property="+propertyIdentifier+" and value "+value);
 		invokeSetter(getModelEntity().getModelProperty(propertyIdentifier), value);
 	}
 

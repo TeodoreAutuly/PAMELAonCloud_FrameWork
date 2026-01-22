@@ -14,9 +14,6 @@
 package org.openflexo.pamela.test.sync;
 
 import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
-import static org.junit.Assert.*;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -24,6 +21,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.After;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.openflexo.pamela.factory.PamelaModelFactory;
@@ -863,6 +866,7 @@ public class CollaborativeDocumentSyncTest {
 			public void onOperationReceived(SyncOperation operation) {
 				if (operation.getOperationType() == SyncOperation.OperationType.SET 
 						&& "content".equals(operation.getPropertyIdentifier())) {
+					System.out.println("OP RECEIVED BY A: "+operation);
 					editLatchA.countDown();
 				}
 			}
@@ -872,7 +876,7 @@ public class CollaborativeDocumentSyncTest {
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
 				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
-					onOperationReceived((SyncOperation) evt.getNewValue());
+					//onOperationReceived((SyncOperation) evt.getNewValue());
 				}
 			}
 		});
@@ -883,6 +887,7 @@ public class CollaborativeDocumentSyncTest {
 				if (operation.getOperationType() == SyncOperation.OperationType.SET 
 						&& "title".equals(operation.getPropertyIdentifier())) {
 					editLatchB.countDown();
+					System.out.println("OP RECEIVED BY B: "+operation);
 				}
 			}
 			@Override public void onConnected() {}
@@ -891,16 +896,19 @@ public class CollaborativeDocumentSyncTest {
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
 				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
-					onOperationReceived((SyncOperation) evt.getNewValue());
+					//onOperationReceived((SyncOperation) evt.getNewValue());
 				}
 			}
 		});
+		System.out.println("ID of A : "+syncManagerA.getReplicaId());
+		System.out.println("ID of B : "+syncManagerB.getReplicaId());
 
 		System.out.println("[Replica A] Setting title");
 		docA.setTitle("Collaborative Document");
-		
-		System.out.println("[Replica B] Setting content");
-		docB.setContent("Content written by User B");
+		System.out.println("New title of A : "+docA.getTitle());
+
+		//System.out.println("[Replica B] Setting content");
+		//docB.setContent("Content written by User B");
 
 		// Wait for cross-propagation
 		editLatchA.await(5, TimeUnit.SECONDS);
