@@ -234,6 +234,46 @@ public class DistributedFeatureDemoMQTT {
                     case "demo":
                         runFullDemo();
                         break;
+                    
+                    case "startbroker":
+                    	 if (!broker) {
+                    		 ArtemisEmbeddedMQTTBroker.startEmbeddedBroker(AMQP_USER, AMQP_PASS);
+                         broker = true;
+                         
+                         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                             System.out.println("[" + replicaName + "] JVM shutdown detected, stopping embedded broker...");
+                             ArtemisEmbeddedMQTTBroker.stopEmbeddedBroker();
+                         }));
+                         
+                         // Configure RabbitMQ sync manager
+                         System.out.println("[" + replicaName + "] Connecting to MQTT broker...");
+                         syncManager = ArtemisMQTTSyncManager.builder()
+                                 .host(AMQP_HOST)
+                                 .port(AMQP_PORT)
+                                 .credentials(AMQP_USER, AMQP_PASS)
+                                 .useSsl(false)
+                                 .exchangeName("pamela-distributed-demo")
+                                 .build();
+                         // Setup sync context with auto state request
+                         syncContext.setSyncManager(syncManager);
+                         syncManager.addListener(syncContext);
+                         
+                         // Add operation listener for visibility
+                         syncManager.addListener(createOperationListener());
+                         Thread.sleep(100);
+
+                         try {
+                             syncManager.connect();
+                             System.out.println("[" + replicaName + "] ✓ Connected! Replica ID: " + 
+                                     syncManager.getReplicaId().substring(0, 8));
+                         } catch (Exception e) {
+                             System.err.println("[" + replicaName + "] ✗ Connection failed: " + e.getMessage());
+                             return;
+                         }
+                        break;} else {
+                        	System.out.println("Broker is already started.");
+                        	break;
+                        }
                         
                     default:
                         System.out.println("Unknown command. Type 'help' for available commands.");
@@ -363,7 +403,13 @@ public class DistributedFeatureDemoMQTT {
             return;
         }
         
-        library.moveBookToIndex(book, newIndex);
+        if (library.getBooks().size() > newIndex ) {
+        	library.moveBookToIndex(book, newIndex);
+        } else {
+        	System.out.println("[" + replicaName + "] ✗ Index out of range");
+        	return;
+        }
+        
         System.out.println("[" + replicaName + "] ✓ MOVE: Moved '" + title + "' to index " + newIndex);
         System.out.println("    → This triggers REINDEX operation broadcast to all replicas");
     }
@@ -475,6 +521,7 @@ public class DistributedFeatureDemoMQTT {
         System.out.println("║  info                 - Show sync information                 ║");
         System.out.println("║  demo                 - Run full feature demonstration        ║");
         System.out.println("║  quit                 - Exit                                  ║");
+        System.out.println("║  startbroker          - Starts a broker if master crashed     ║");
         System.out.println("╚═══════════════════════════════════════════════════════════════╝");
         System.out.println();
     }

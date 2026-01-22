@@ -1,19 +1,20 @@
 /**
- * Copyright (c) 2024, Openflexo
- *
- * This file is part of Pamela-core, a component of the software infrastructure
+ * Copyright (c) 2026, Openflexo
+ * 
+ * This file is part of Pamela-core, a component of the software infrastructure 
  * developed at Openflexo.
- *
- * Openflexo is dual-licensed under the European Union Public License (EUPL, either
- * version 1.1 of the License, or any later version), which is available at
+ * 
+ * Openflexo is dual-licensed under the European Union Public License (EUPL, either 
+ * version 1.1 of the License, or any later version ), which is available at 
  * https://joinup.ec.europa.eu/software/page/eupl/licence-eupl
- * and the GNU General Public License (GPL, either version 3 of the License, or any
- * later version), which is available at http://www.gnu.org/licenses/gpl.html.
+ * and the GNU General Public License (GPL, either version 3 of the License, or any 
+ * later version), which is available at http://www.gnu.org/licenses/gpl.html .
  */
 
 package org.openflexo.pamela.sync;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -24,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public class SyncOperationSerializer {
 
-	private static final ObjectMapper objectMapper = new ObjectMapper();
+	private static final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
 	/**
 	 * Serialize a SyncOperation to JSON string
@@ -110,7 +111,7 @@ public class SyncOperationSerializer {
 
 		public SyncOperationDTO(SyncOperation op) {
 			this.operationId = op.getOperationId();
-			this.operationType = op.getOperationType().name();
+			this.operationType = op.getOperationType();
 			this.timestamp = op.getTimestamp();
 			this.replicaId = op.getReplicaId();
 			this.objectId = op.getObjectId();
@@ -131,7 +132,7 @@ public class SyncOperationSerializer {
 				vc = vectorClock.toVectorClock();
 			}
 
-			return new SyncOperation.Builder(SyncOperation.OperationType.valueOf(operationType))
+			return new SyncOperation.Builder(operationType)
 					.operationId(operationId)
 					.timestamp(timestamp)
 					.replicaId(replicaId)

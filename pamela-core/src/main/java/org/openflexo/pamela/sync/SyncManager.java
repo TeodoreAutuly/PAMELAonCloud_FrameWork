@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2015, Openflexo
+ * Copyright (c) 2026, Openflexo
  * 
  * This file is part of Pamela-core, a component of the software infrastructure 
  * developed at Openflexo.
@@ -71,11 +71,18 @@ public interface SyncManager {
 
 	/**
 	 * Sends the current state as a response to a state request.
-	 * 
+	 *
 	 * @param stateSnapshot the serialized state snapshot
 	 * @param targetReplicaId the replica that requested the state (optional, null for broadcast)
 	 */
 	default void sendStateResponse(String stateSnapshot, String targetReplicaId) {
+		// Default implementation does nothing
+	}
+
+	/**
+	 * Disconnects from the messaging system and releases resources.
+	 */
+	default void close() {
 		// Default implementation does nothing
 	}
 

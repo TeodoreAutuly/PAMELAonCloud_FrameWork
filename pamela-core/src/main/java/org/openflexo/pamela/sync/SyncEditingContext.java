@@ -1,17 +1,18 @@
 /**
- * Copyright (c) 2024, Openflexo
- *
- * This file is part of Pamela-core, a component of the software infrastructure
+ * Copyright (c) 2026, Openflexo
+ * 
+ * This file is part of Pamela-core, a component of the software infrastructure 
  * developed at Openflexo.
- *
- * Openflexo is dual-licensed under the European Union Public License (EUPL, either
- * version 1.1 of the License, or any later version), which is available at
+ * 
+ * Openflexo is dual-licensed under the European Union Public License (EUPL, either 
+ * version 1.1 of the License, or any later version ), which is available at 
  * https://joinup.ec.europa.eu/software/page/eupl/licence-eupl
- * and the GNU General Public License (GPL, either version 3 of the License, or any
- * later version), which is available at http://www.gnu.org/licenses/gpl.html.
+ * and the GNU General Public License (GPL, either version 3 of the License, or any 
+ * later version), which is available at http://www.gnu.org/licenses/gpl.html .
  */
 
 package org.openflexo.pamela.sync;
+
 import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,13 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
-import org.openflexo.pamela.sync.SyncOperation.OperationType;
+import org.openflexo.pamela.sync.SyncOperation;
+
+import org.openflexo.pamela.undo.AddCommand;
+import org.openflexo.pamela.undo.AtomicEdit;
+import org.openflexo.pamela.undo.CreateCommand;
+import org.openflexo.pamela.undo.DeleteCommand;
+import org.openflexo.pamela.undo.SetCommand;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -39,11 +46,21 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 
 	private static final Logger logger = Logger.getLogger(SyncEditingContext.class.getName());
 
+	private final Map<String, RemoteOperationHandler> handlers = new ConcurrentHashMap<>();
+	private final Map<Class<? extends AtomicEdit>, LocalEditHandler> localEditHandlers = new ConcurrentHashMap<>();
 	private SyncManager syncManager;
 	private final ObjectIdentityManager identityManager;
 	private final SyncValueSerializer valueSerializer;
 	private PamelaModelFactory modelFactory;
 	private PropertyStateManager propertyStateManager;
+	private org.openflexo.pamela.undo.UndoManager customUndoManager;
+    
+
+	@FunctionalInterface
+	public interface LocalEditHandler {
+		void handle(AtomicEdit<?> edit);
+	}
+
 	// Flag to prevent recursive sync when applying remote operations
 	private final ThreadLocal<Boolean> applyingRemoteOperation = ThreadLocal.withInitial(() -> false);
 
@@ -66,6 +83,10 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	private CrdtLowestIdStrategy crdtStrategy; 
 	private CrdtContext crdtContext; 
 
+	// Root objects by entity type - these are used instead of creating new ones for remote operations
+	// Key: entity class name, Value: the root object for that type
+	private final Map<String, Object> rootObjects = new ConcurrentHashMap<>();
+
 	/**
 	 * Create a synchronized editing context without a sync manager.
 	 * Call setSyncManager() to set one later.
@@ -78,6 +99,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		this.crdtStrategy = new CrdtLowestIdStrategy(); 
 		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
+		registerDefaultHandlers();
 	}
 
 	/**
@@ -93,7 +115,183 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		this.propertyStateManager = new PropertyStateManager(this.identityManager); 
 		this.crdtStrategy = new CrdtLowestIdStrategy(); 
 		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
+		this.customUndoManager = null;
+		registerDefaultHandlers();
 	}
+
+// createUndoManager() is implemented later in this class to configure the UndoManager
+// (kept here intentionally as a single definition to avoid duplicate method declarations).
+
+	public <T extends AtomicEdit<?>> void registerLocalHandler(Class<T> editClass, LocalEditHandler handler) {
+		if (editClass == null || handler == null) return;
+		localEditHandlers.put(editClass, handler);
+	}
+
+    private void registerDefaultHandlers() {
+        // Remote handlers (inbound)
+        handlers.put(SyncOperation.SET, this::applyRemoteModification);
+        handlers.put(SyncOperation.ADD, this::applyRemoteModification);
+        handlers.put(SyncOperation.REMOVE, this::applyRemoteModification);
+		handlers.put(SyncOperation.REINDEX, this::applyRemoteModification);
+        handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
+		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
+
+
+		 handlers.put(SyncOperation.STATE_REQUEST, operation -> {
+           try {
+                // caller requests state; pass requesting replica id
+               onStateRequested(operation.getReplicaId());
+           } catch (Exception e) {
+               logger.log(Level.WARNING, "Failed to handle STATE_REQUEST", e);
+           }
+       });
+
+       handlers.put(SyncOperation.STATE_RESPONSE, operation -> {
+           try {
+               // STATE_RESPONSE carries the serialized snapshot
+               onStateReceived(operation.getNewValueSerialized(), operation.getReplicaId());
+           } catch (Exception e) {
+               logger.log(Level.WARNING, "Failed to handle STATE_RESPONSE", e);
+           }
+       });
+	   
+       // Local handlers (outbound)
+       registerLocalHandler(SetCommand.class, edit -> {
+            SetCommand<?> s = (SetCommand<?>) edit;
+            // Skip SET operations for list properties - lists use ADD/REMOVE
+            if (s.getNewValue() instanceof java.util.List || s.getOldValue() instanceof java.util.List) {
+                return;
+            }
+            sendToCloud(buildBaseOp(SyncOperation.SET, s.getObject(), s)
+                .oldValue(serializeValue(s.getOldValue()))
+                .newValue(serializeValue(s.getNewValue()))
+                .build());
+        });
+
+        registerLocalHandler(AddCommand.class, edit -> {
+            AddCommand<?> a = (AddCommand<?>) edit;
+            sendToCloud(buildBaseOp(SyncOperation.ADD, a.getObject(), a)
+                .newValue(serializeValue(a.getAddedValue()))
+                .index(a.getIndex())
+                .build());
+        });
+
+        registerLocalHandler(CreateCommand.class, edit -> {
+            sendToCloud(new SyncOperation.Builder(SyncOperation.CREATE)
+                .replicaId(getReplicaId())
+                .objectId(identityManager.getOrCreateObjectId(edit.getObject()))
+                .entityType(getEntityTypeName(edit.getObject()))
+                .build());
+        });
+
+        registerLocalHandler(DeleteCommand.class, edit -> {
+            sendToCloud(new SyncOperation.Builder(SyncOperation.DELETE)
+                .replicaId(getReplicaId())
+                .objectId(identityManager.getObjectId(edit.getObject()))
+                .entityType(getEntityTypeName(edit.getObject()))
+                .build());
+        });
+
+		registerLocalHandler(org.openflexo.pamela.undo.RemoveCommand.class, edit -> {
+    	org.openflexo.pamela.undo.RemoveCommand<?> r = (org.openflexo.pamela.undo.RemoveCommand<?>) edit;
+    	sendToCloud(buildBaseOp(SyncOperation.REMOVE, r.getObject(), r)
+        .oldValue(serializeValue(r.getRemovedValue()))
+        .build());
+		});
+    }
+
+	/**
+	 * Serialize a value for sync operations.
+	 * Uses reference serialization for PAMELA proxy objects.
+	 */
+	private String serializeValue(Object value) {
+		if (value == null) {
+			return valueSerializer.serialize(null);
+		}
+		if (modelFactory != null && modelFactory.isProxyObject(value)) {
+			return valueSerializer.serializeReference(value, identityManager);
+		}
+		return valueSerializer.serialize(value);
+	}
+
+	private void sendToCloud(SyncOperation op) {
+    if (isApplyingRemoteOperation() || syncManager == null || !syncManager.isConnected()) {
+        return;
+    }
+
+    syncManager.publishOperation(op);
+}
+
+
+	private SyncOperation.Builder buildBaseOp(String type, Object target, AtomicEdit<?> edit) {
+        ModelProperty<?> prop = resolveModelPropertyFromEdit(edit, target);
+        return new SyncOperation.Builder(type)
+            .replicaId(getReplicaId())
+            .objectId(identityManager.getOrCreateObjectId(target))
+            .entityType(getEntityTypeName(target))
+            .propertyIdentifier(prop != null ? prop.getPropertyIdentifier() : null)
+            .valueType(prop != null ? prop.getType().getName() : null);
+    }
+
+    // Helper: resolve ModelProperty from an AtomicEdit using either a property object or a property identifier exposed by the edit.
+    private ModelProperty<?> resolveModelPropertyFromEdit(AtomicEdit<?> edit, Object targetObject) {
+        if (targetObject == null || modelFactory == null) return null;
+        try {
+            // Try direct getProperty() returning a ModelProperty (if present)
+            try {
+                java.lang.reflect.Method mProp = edit.getClass().getMethod("getProperty");
+                Object propObj = mProp.invoke(edit);
+                if (propObj instanceof ModelProperty) {
+                    return (ModelProperty<?>) propObj;
+                }
+            } catch (NoSuchMethodException ignored) {}
+
+            // Try getPropertyIdentifier() or getPropertyName()
+            String propId = null;
+            try {
+                java.lang.reflect.Method mId = edit.getClass().getMethod("getPropertyIdentifier");
+                propId = (String) mId.invoke(edit);
+            } catch (NoSuchMethodException ignored) {
+                try {
+                    java.lang.reflect.Method mName = edit.getClass().getMethod("getPropertyName");
+                    propId = (String) mName.invoke(edit);
+                } catch (NoSuchMethodException ignored2) {}
+            }
+
+            if (propId != null) {
+                ProxyMethodHandler<?> handler = modelFactory.getHandler(targetObject);
+                if (handler != null) {
+                    return handler.getModelEntity().getModelProperty(propId);
+                }
+            }
+        } catch (Exception e) {
+            logger.log(Level.FINE, "Failed to resolve ModelProperty from edit: " + edit.getClass(), e);
+        }
+        return null;
+    }
+
+    /**
+	 * Add new operation at runtime 
+     */
+    public void registerHandler(String type, RemoteOperationHandler handler) {
+        handlers.put(type, handler);
+    }
+
+	
+/* 
+	private LocalEditHandler findLocalHandlerFor(Class<? extends AtomicEdit> cls) {
+		// Exact match first
+		LocalEditHandler h = localEditHandlers.get(cls);
+		if (h != null) return h;
+		// Then try assignable matches (allows registering handlers for supertypes)
+		for (Map.Entry<Class<? extends AtomicEdit>, LocalEditHandler> e : localEditHandlers.entrySet()) {
+			if (e.getKey().isAssignableFrom(cls)) {
+				return e.getValue();
+			}
+		}
+		return null;
+	}
+		*/
 
 	/**
 	 * Create a synchronized editing context with custom sync manager
@@ -109,6 +307,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		}
 		this.crdtStrategy = new CrdtLowestIdStrategy(); 
 		this.crdtContext = new CrdtContext(identityManager, propertyStateManager, modelFactory, valueSerializer, logger, createdObjects); 
+		registerDefaultHandlers();
 	}
 
 	/**
@@ -140,6 +339,14 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 	 */
 	public ObjectIdentityManager getIdentityManager() {
 		return identityManager;
+	}
+
+	/**
+	 * Get the value serializer for registering custom type serializers.
+	 * Applications can register their own serializers for custom types.
+	 */
+	public SyncValueSerializer getValueSerializer() {
+		return valueSerializer;
 	}
 
 	/**
@@ -189,11 +396,66 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		return object.getClass().getName();
 	}
 
-public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldValue,Object newValue,int index,SyncOperation.OperationType operationType){
+	/**
+	 * Ensure a PAMELA proxy object has been created (has ID and CREATE operation sent).
+	 * This is used to ensure embedded objects are properly synced before being referenced.
+	 *
+	 * @param object the object to ensure is created
+	 * @return the serialized reference string for the object
+	 */
+	private String ensureObjectCreatedAndSerialize(Object object) {
+		if (object == null || modelFactory == null || !modelFactory.isProxyObject(object)) {
+			return valueSerializer.serialize(object);
+		}
+
+		// Get or create an ID for this object
+		String objectId = identityManager.getOrCreateObjectId(object);
+
+		// Check if CREATE was already sent for this object
+		if (!createdObjects.containsKey(objectId)) {
+			// Send CREATE operation for this embedded object
+			String entityType = getEntityTypeName(object);
+			SyncOperation createOp = new SyncOperation.Builder(SyncOperation.CREATE)
+					.replicaId(syncManager.getReplicaId())
+					.objectId(objectId)
+					.entityType(entityType)
+					.build();
+			syncManager.publishOperation(createOp);
+			createdObjects.put(objectId, Boolean.TRUE);
+			logger.fine("Sent CREATE for embedded object: " + objectId + " (" + entityType + ")");
+		}
+
+		// Now serialize as reference
+		return valueSerializer.serializeReference(object, identityManager);
+	}
+
+public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldValue,Object newValue,int index,String operationType){
+	// Debug: log broadcast attempts
+	logger.info("broadcast() called: type=" + operationType + ", property=" +
+			(property != null ? property.getPropertyIdentifier() : "null") +
+			", connected=" + (syncManager != null && syncManager.isConnected()));
+
 	if (syncManager == null || isApplyingRemoteOperation() || !syncManager.isConnected()) {
+		logger.info("broadcast() skipped: syncManager=" + (syncManager != null) +
+				", applyingRemote=" + isApplyingRemoteOperation() +
+				", connected=" + (syncManager != null && syncManager.isConnected()));
         return;
     }
-	try{ 
+
+	// Skip properties with ignoreType=true (editor-local state like mouseClickControls)
+	if (property != null && property.ignoreType()) {
+		logger.fine("broadcast() skipped ignoreType property: " + property.getPropertyIdentifier());
+		return;
+	}
+
+	// Skip SET operations for list properties - lists should use ADD/REMOVE
+	if (operationType.equals(SyncOperation.SET) && property != null
+			&& property.getCardinality() == org.openflexo.pamela.annotations.Getter.Cardinality.LIST) {
+		logger.info("broadcast() skipped SET for list property: " + property.getPropertyIdentifier());
+		return;
+	}
+
+	try{
 		String objectId = identityManager.getOrCreateObjectId(object);
         String entityType = getEntityTypeName(object);
 		 SyncOperation.Builder builder = new SyncOperation.Builder(operationType)
@@ -206,28 +468,29 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
                    .valueType(property.getType().getName());
         }
 
-		      // Serialize oldValue if relevant (remove and set)
-        if (oldValue != null && (operationType == SyncOperation.OperationType.SET 
-                || operationType == SyncOperation.OperationType.REMOVE
-				|| operationType.equals(SyncOperation.OperationType.REINDEX))) {
+		// Serialize oldValue if relevant (remove and set)
+		if (oldValue != null && (operationType.equals(SyncOperation.SET)
+				|| operationType.equals(SyncOperation.REMOVE))) {
+			String serializedOld = ensureObjectCreatedAndSerialize(oldValue);
+			// Skip empty/meaningless serialized values (e.g., empty DataBinding)
+			if (serializedOld != null && !serializedOld.isEmpty()) {
+				builder.oldValue(serializedOld);
+			}
+		}
 
-            String serializedOld = (modelFactory != null && modelFactory.isProxyObject(oldValue))
-                                   ? valueSerializer.serializeReference(oldValue, identityManager)
-                                   : valueSerializer.serialize(oldValue);
-            builder.oldValue(serializedOld);
-        }
-			
-        // Serialize newValue if relevant (add and set)
-		    if (newValue != null && (operationType == SyncOperation.OperationType.SET
-                || operationType == SyncOperation.OperationType.ADD
-				|| operationType.equals(SyncOperation.OperationType.REINDEX))) {
-            String serializedNew = (modelFactory != null && modelFactory.isProxyObject(newValue))
-                                   ? valueSerializer.serializeReference(newValue, identityManager)
-                                   : valueSerializer.serialize(newValue);
-            builder.newValue(serializedNew);
-        }
+		// Serialize newValue if relevant (add and set)
+		// Uses ensureObjectCreatedAndSerialize to ensure embedded PAMELA objects
+		// have CREATE operations sent before they are referenced
+		if (newValue != null && (operationType.equals(SyncOperation.SET)
+				|| operationType.equals(SyncOperation.ADD))) {
+			String serializedNew = ensureObjectCreatedAndSerialize(newValue);
+			// Skip empty/meaningless serialized values (e.g., empty DataBinding)
+			if (serializedNew != null && !serializedNew.isEmpty()) {
+				builder.newValue(serializedNew);
+			}
+		}
 		 // Index for ADD/REINDEX
-		if (operationType == SyncOperation.OperationType.ADD || operationType == SyncOperation.OperationType.REINDEX) {
+		if (operationType.equals(SyncOperation.ADD) || operationType.equals(SyncOperation.REINDEX)) {
             builder.index(index);
         }
 		VectorClock clock = syncManager.getVectorClock();
@@ -236,7 +499,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		SyncOperation operation = builder.build();
 		propertyStateManager.storeIntoMap(operation);
 		syncManager.publishOperation(operation);
-		if(operationType ==SyncOperation.OperationType.CREATE){
+		if(operationType.equals(SyncOperation.CREATE)){
 		createdObjects.put(objectId, Boolean.TRUE);
 			
 		// Then send any buffered operations for this object
@@ -280,12 +543,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 	
 	// SyncOperationListener implementation
 	@Override
-	public void onOperationReceived(SyncOperation operation) {
-		logger.info(">>> Received operation: " + operation.getOperationType() 
-				+ " objectId=" + operation.getObjectId() 
-				+ " property=" + operation.getPropertyIdentifier());
-
-		if (modelFactory == null) {
+    public void onOperationReceived(SyncOperation operation) {
+        if (modelFactory == null) {
 			logger.warning("ModelFactory not set, cannot apply remote operation");
 			return;
 		}
@@ -294,13 +553,13 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		currentRemoteReplicaId.set(operation.getReplicaId());
 		try {
 			switch (operation.getOperationType()) {
-				case CREATE:
+				case "CREATE":
 					crdtStrategy.applyRemoteCreate(operation,crdtContext);
 					break;
-				case DELETE:
+				case "DELETE":
 					crdtStrategy.applyRemoteDelete(operation,crdtContext);
 					break;
-				case SET: case ADD: case REMOVE: case REINDEX:
+				case "SET": case "ADD": case "REMOVE": case "REINDEX":
 					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
 					break;
 				default:
@@ -311,8 +570,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		} finally {
 			applyingRemoteOperation.set(false);
 			currentRemoteReplicaId.remove();
-		}
-	}
+
+        }
+    }
 
 	@Override
 	public void onConnected() {
@@ -380,6 +640,34 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 	}
 
 	/**
+	 * Register a root object for a specific entity type.
+	 * When remote operations arrive for this entity type and the object doesn't exist,
+	 * the root object will be used instead of creating a new one.
+	 * This is essential for objects like Diagram that are created locally and observed by the UI.
+	 *
+	 * @param object the root object to register
+	 */
+	public void registerRootObject(Object object) {
+		if (object == null) return;
+		ProxyMethodHandler<?> handler = modelFactory.getHandler(object);
+		if (handler != null) {
+			String entityType = handler.getModelEntity().getImplementedInterface().getName();
+			rootObjects.put(entityType, object);
+			logger.info("Registered root object for type: " + entityType);
+		}
+	}
+
+	/**
+	 * Get the root object for an entity type, if registered.
+	 *
+	 * @param entityType the entity class name
+	 * @return the root object, or null if not registered
+	 */
+	public Object getRootObject(String entityType) {
+		return rootObjects.get(entityType);
+	}
+
+	/**
 	 * Check if automatic state request on connect is enabled.
 	 * 
 	 * @return true if enabled
@@ -390,7 +678,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 
 	/**
 	 * Check if state has been received from another replica.
-	 * 
+	 *
 	 * @return true if state was received
 	 */
 	public boolean isStateReceived() {
