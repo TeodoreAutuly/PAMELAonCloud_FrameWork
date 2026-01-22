@@ -129,10 +129,10 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
  
     private void registerDefaultHandlers() {
         // Remote handlers (inbound)
-        handlers.put(SyncOperation.SET, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
-        handlers.put(SyncOperation.ADD, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
-        handlers.put(SyncOperation.REMOVE, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
-		handlers.put(SyncOperation.REINDEX, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, op.getIndex()));
+        handlers.put(SyncOperation.SET, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this));
+        handlers.put(SyncOperation.ADD, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this));
+        handlers.put(SyncOperation.REMOVE, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this));
+		handlers.put(SyncOperation.REINDEX, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this));
         handlers.put(SyncOperation.CREATE, op -> crdtStrategy.applyRemoteCreate(op, crdtContext));
 		handlers.put(SyncOperation.DELETE, op -> crdtStrategy.applyRemoteDelete(op, crdtContext));
 
@@ -478,11 +478,12 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 			}
 		}
 
-		// Serialize newValue if relevant (add and set)
+		// Serialize newValue if relevant (add and set and reindex)
 		// Uses ensureObjectCreatedAndSerialize to ensure embedded PAMELA objects
 		// have CREATE operations sent before they are referenced
 		if (newValue != null && (operationType.equals(SyncOperation.SET)
-				|| operationType.equals(SyncOperation.ADD))) {
+				|| operationType.equals(SyncOperation.ADD)
+				|| operationType.equals(SyncOperation.REINDEX))) {
 			String serializedNew = ensureObjectCreatedAndSerialize(newValue);
 			// Skip empty/meaningless serialized values (e.g., empty DataBinding)
 			if (serializedNew != null && !serializedNew.isEmpty()) {
@@ -560,10 +561,10 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					crdtStrategy.applyRemoteDelete(operation,crdtContext);
 					break;
 				case "SET": case "ADD": case "REMOVE":
-					crdtStrategy.applyRemoteModification(operation,crdtContext,this, 0);
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
 					break;
 				case "REINDEX":
-					crdtStrategy.applyRemoteModification(operation,crdtContext,this, operation.getIndex());
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
 					break;
 				default:
 					logger.warning("Unknown operation type: " + operation.getOperationType());

@@ -111,7 +111,7 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 
 	@Override
 	public void applyRemoteModification(SyncOperation operation, CrdtContext crdtContext,
-			SyncEditingContext syncContext, int index) {
+			SyncEditingContext syncContext) {
 		Object target = crdtContext.identityManager.getObject(operation.getObjectId());
 		Map<String, SyncOperation> objectMap = crdtContext.propertyStateManager.getMapCrdt().get(operation.getObjectId());
 		SyncOperation lastOp = null;
@@ -137,16 +137,16 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 					} else {
 						value = operation.getNewValueSerialized();
 					}
-					//System.out.println(operation);
+					System.out.println(operation);
 
 					Object newValue = crdtContext.valueSerializer.deserialize(						
 							value,
 							property.getType(),
 							syncContext
 					);
-					//int index = operation.getIndex();
-					//System.out.println(index);
-					//System.out.println(newValue);
+					int index = operation.getIndex();
+					System.out.println(index);
+					System.out.println(newValue);
 					//System.out.println(value);
 					//System.out.println(property.getType());
 					//System.out.println(syncContext);

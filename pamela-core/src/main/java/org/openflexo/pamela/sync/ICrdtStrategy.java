@@ -14,7 +14,7 @@
 package org.openflexo.pamela.sync;
 
 public interface ICrdtStrategy {
-    void applyRemoteModification(SyncOperation operation,CrdtContext crdtContext, SyncEditingContext syncContext, int index); 
+    void applyRemoteModification(SyncOperation operation,CrdtContext crdtContext, SyncEditingContext syncContext); 
     void applyRemoteCreate(SyncOperation operation, CrdtContext crdtContext); 
     void applyRemoteDelete(SyncOperation operation, CrdtContext crdtContext); 
 
