@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.openflexo.pamela.AccessibleProxyObject;
-import org.openflexo.pamela.sync.SyncOperation.OperationType;
+import org.openflexo.pamela.sync.SyncOperation;
 
 public class PropertyStateManager{
     private final Map<String,Map<String,SyncOperation>> mapCrdt; 
@@ -34,9 +34,9 @@ public class PropertyStateManager{
     }
 
     public void storeIntoMap(SyncOperation operation){
-        if(operation.getOperationType().equals(OperationType.SET)||operation.getOperationType().equals(OperationType.REINDEX))
+        if(operation.getOperationType().equals(SyncOperation.SET)||operation.getOperationType().equals(SyncOperation.REINDEX))
          mapCrdt.computeIfAbsent(operation.getObjectId(), id -> new HashMap<>()).put(operation.getPropertyIdentifier(), operation);
-        if(operation.getOperationType().equals(OperationType.DELETE))
+        if(operation.getOperationType().equals(SyncOperation.DELETE))
             recursiveDelete(operation,operation.getObjectId());
     }
 

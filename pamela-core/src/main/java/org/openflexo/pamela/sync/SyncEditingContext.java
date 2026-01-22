@@ -1109,8 +1109,19 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (target == null) {
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
 			// Else create the object 			
-			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.DELETE)){
+			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.DELETE)){
 				return; 
+			}
+			// Check if we have a root object of this type that we should use instead of creating a new one
+			Object rootObject = getRootObject(operation.getEntityType());
+			if (rootObject != null) {
+			// Use the root object and map the remote ID to it
+				logger.info("Using root object for remote operation on " + operation.getEntityType());
+				identityManager.registerObject(rootObject, operation.getObjectId());
+				target = rootObject;
+			} else {
+				// Object doesn't exist yet - try to create it first (might happen because of reordering operations)
+				target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());
 			}
 			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
 		}
@@ -1145,8 +1156,8 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 					int index = operation.getIndex();
 
 					switch(operation.getOperationType()){
-						case SET:
-						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.SET)){
+						case "SET":
+						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.SET)){
 							//If the operation received is before the last operation in local according to the vector clock do nothing
 							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
 							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1 ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 && UUID.fromString(lastOp.getReplicaId()).compareTo(UUID.fromString(operation.getReplicaId()))==-1)){
@@ -1159,13 +1170,21 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
 						}				
 						break; 
-						case ADD: 	
+						case "ADD": 	
 						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
+						// Finalize deserialization for the added object now that it's in the model
+						if (newValue != null) {
+							ProxyMethodHandler<?> addedHandler = modelFactory.getHandler(newValue);
+							if (addedHandler != null && addedHandler.isDeserializing()) {
+								addedHandler.setDeserializing(false);
+								logger.fine("Finalized deserialization for added object: " + newValue);
+							}
+						}
 						break; 
-						case REMOVE: 
+						case "REMOVE": 
 						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
 						break; 
-						case REINDEX:
+						case "REINDEX":
 						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
 						default: 
 						break; 
