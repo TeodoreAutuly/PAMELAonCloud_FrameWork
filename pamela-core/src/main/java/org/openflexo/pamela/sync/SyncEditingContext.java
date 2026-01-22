@@ -1,27 +1,17 @@
 /**
- * Copyright (c) 2024, Openflexo
- *
- * This file is part of Pamela-core, a component of the software infrastructure
+ * Copyright (c) 2026, Openflexo
+ * 
+ * This file is part of Pamela-core, a component of the software infrastructure 
  * developed at Openflexo.
- *
- * Openflexo is dual-licensed under the European Union Public License (EUPL, either
- * version 1.1 of the License, or any later version), which is available at
+ * 
+ * Openflexo is dual-licensed under the European Union Public License (EUPL, either 
+ * version 1.1 of the License, or any later version ), which is available at 
  * https://joinup.ec.europa.eu/software/page/eupl/licence-eupl
- * and the GNU General Public License (GPL, either version 3 of the License, or any
- * later version), which is available at http://www.gnu.org/licenses/gpl.html.
+ * and the GNU General Public License (GPL, either version 3 of the License, or any 
+ * later version), which is available at http://www.gnu.org/licenses/gpl.html .
  */
 
 package org.openflexo.pamela.sync;
-
-import org.openflexo.pamela.factory.EditingContextImpl;
-import org.openflexo.pamela.factory.PamelaModelFactory;
-import org.openflexo.pamela.factory.ProxyMethodHandler;
-import org.openflexo.pamela.model.ModelProperty;
-import org.openflexo.pamela.undo.AddCommand;
-import org.openflexo.pamela.undo.AtomicEdit;
-import org.openflexo.pamela.undo.CreateCommand;
-import org.openflexo.pamela.undo.DeleteCommand;
-import org.openflexo.pamela.undo.SetCommand;
 
 import java.beans.PropertyChangeEvent;
 import java.util.ArrayList;
@@ -35,6 +25,11 @@ import org.openflexo.pamela.factory.EditingContextImpl;
 import org.openflexo.pamela.factory.PamelaModelFactory;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
+import org.openflexo.pamela.undo.AddCommand;
+import org.openflexo.pamela.undo.AtomicEdit;
+import org.openflexo.pamela.undo.CreateCommand;
+import org.openflexo.pamela.undo.DeleteCommand;
+import org.openflexo.pamela.undo.SetCommand;
 
 /**
  * Synchronized editing context that broadcasts PAMELA operations via RabbitMQ.
@@ -124,6 +119,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
         handlers.put(SyncOperation.SET, this::applyRemoteModification);
         handlers.put(SyncOperation.ADD, this::applyRemoteModification);
         handlers.put(SyncOperation.REMOVE, this::applyRemoteModification);
+		handlers.put(SyncOperation.REINDEX, this::applyRemoteModification);
         handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
 		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
 
@@ -1133,6 +1129,7 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 							property.getType(),
 							this
 					);
+					int index = operation.getIndex();
 
 					// Debug logging
 					logger.info("Applying " + operation.getOperationType() + " on property '" +
@@ -1159,6 +1156,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						case "REMOVE":
 						handler.invokeRemover(operation.getPropertyIdentifier(), newValue);
 						logger.info("REMOVE completed on " + operation.getPropertyIdentifier());
+						break;
+            case "REINDEX":
+						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
 						break;
 						default:
 						break;
