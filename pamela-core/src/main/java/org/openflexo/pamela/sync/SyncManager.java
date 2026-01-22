@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2015, Openflexo
+ * Copyright (c) 2026, Openflexo
  * 
  * This file is part of Pamela-core, a component of the software infrastructure 
  * developed at Openflexo.
