@@ -1330,7 +1330,6 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	}
 
 	public void invokeSetter(String propertyIdentifier, Object value) throws ModelDefinitionException {
-		System.out.println("Replica "+this.getCurrentReplicaId()+" is calling invokeSetter with property="+propertyIdentifier+" and value "+value);
 		invokeSetter(getModelEntity().getModelProperty(propertyIdentifier), value);
 	}
 

@@ -866,7 +866,6 @@ public class CollaborativeDocumentSyncTest {
 			public void onOperationReceived(SyncOperation operation) {
 				if (operation.getOperationType() == SyncOperation.OperationType.SET 
 						&& "content".equals(operation.getPropertyIdentifier())) {
-					System.out.println("OP RECEIVED BY A: "+operation);
 					editLatchA.countDown();
 				}
 			}
@@ -876,7 +875,7 @@ public class CollaborativeDocumentSyncTest {
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
 				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
-					//onOperationReceived((SyncOperation) evt.getNewValue());
+					onOperationReceived((SyncOperation) evt.getNewValue());
 				}
 			}
 		});
@@ -887,7 +886,6 @@ public class CollaborativeDocumentSyncTest {
 				if (operation.getOperationType() == SyncOperation.OperationType.SET 
 						&& "title".equals(operation.getPropertyIdentifier())) {
 					editLatchB.countDown();
-					System.out.println("OP RECEIVED BY B: "+operation);
 				}
 			}
 			@Override public void onConnected() {}
@@ -896,19 +894,17 @@ public class CollaborativeDocumentSyncTest {
 			@Override
 			public void propertyChange(PropertyChangeEvent evt) {
 				if ("OPERATION_RECEIVED".equals(evt.getPropertyName())) {
-					//onOperationReceived((SyncOperation) evt.getNewValue());
+					onOperationReceived((SyncOperation) evt.getNewValue());
 				}
 			}
 		});
-		System.out.println("ID of A : "+syncManagerA.getReplicaId());
-		System.out.println("ID of B : "+syncManagerB.getReplicaId());
+
 
 		System.out.println("[Replica A] Setting title");
 		docA.setTitle("Collaborative Document");
-		System.out.println("New title of A : "+docA.getTitle());
 
-		//System.out.println("[Replica B] Setting content");
-		//docB.setContent("Content written by User B");
+		System.out.println("[Replica B] Setting content");
+		docB.setContent("Content written by User B");
 
 		// Wait for cross-propagation
 		editLatchA.await(5, TimeUnit.SECONDS);

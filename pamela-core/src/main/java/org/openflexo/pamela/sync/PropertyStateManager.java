@@ -23,11 +23,11 @@ import org.openflexo.pamela.sync.SyncOperation.OperationType;
 public class PropertyStateManager{
     private final Map<String,Map<String,SyncOperation>> mapCrdt; 
     private final ObjectIdentityManager objectIdentityManager; 
+
     public PropertyStateManager(ObjectIdentityManager objectIdentityManager){
         this.mapCrdt =new HashMap<>(); 
         this.objectIdentityManager = objectIdentityManager; 
     }
-
 
     public Map<String,Map<String,SyncOperation>> getMapCrdt(){
         return this.mapCrdt; 

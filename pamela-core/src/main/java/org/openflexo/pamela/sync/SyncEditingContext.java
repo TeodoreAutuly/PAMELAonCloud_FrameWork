@@ -222,9 +222,9 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		if (operationType == SyncOperation.OperationType.ADD || operationType == SyncOperation.OperationType.REINDEX) {
             builder.index(index);
         }
+
 		SyncOperation operation = builder.build();
 		propertyStateManager.storeIntoMap(operation);
-		System.out.println("Broadcast : " + operation.getOperationType() + " : " + " : " + operation.getObjectId() + " : " + operation.getPropertyIdentifier() + " : " + operation.getOldValueSerialized() + " : " + operation.getNewValueSerialized() + " : " + operation.getIndex());
 		syncManager.publishOperation(operation);
 		if(operationType ==SyncOperation.OperationType.CREATE){
 		createdObjects.put(objectId, Boolean.TRUE);
@@ -818,18 +818,17 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 		SyncOperation lastOp = null;
 		if(objectMap != null)
 			lastOp = objectMap.get(operation.getPropertyIdentifier()); 
-		System.out.println("Object Map of replica id="+this.getReplicaId()+" : "+objectMap);
+
 		if(lastOp!=null)
-			System.out.println("LastOP : id = "+lastOp.getOperationId()+", clock = "+lastOp.getVectorClock()+", new op : id="+operation.getOperationId()+", clock="+operation.getVectorClock());
-		
-		if (target == null) 
+
+		if (target == null) {
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
 			// Else create the object 			
 			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.DELETE)){
 				return; 
 			}
-		target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
-		
+			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType());			
+		}
 		try { 
 			ProxyMethodHandler<?> handler = modelFactory.getHandler(target);
 			if (handler != null) {
@@ -840,7 +839,6 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 						value = operation.getOldValueSerialized(); 
 					}
 					else{value= operation.getNewValueSerialized();}
-					System.out.println("Replica "+this.getReplicaId()+" is applying a remote operation from "+operation.getReplicaId()+" with values : "+operation.getOldValueSerialized()+ " : "+operation.getNewValueSerialized());
 
 					Object newValue = valueSerializer.deserialize(						
 							value,
@@ -858,13 +856,10 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 								return; 
 							}
 							else {
-								System.out.println("The Replica " + this.getReplicaId()+" is applying a remote SET operation : "+operation);
 								handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
 							}						
 						}else{
-							System.out.println("Replica "+this.getReplicaId()+" is invoking a first set operation"+((AccessibleProxyObject)target).performSuperGetter(property.getPropertyIdentifier()));
 							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
-							System.out.println("Replica "+this.getReplicaId()+" has changed its property "+property+ " to "+((AccessibleProxyObject)target).performSuperGetter(property.getPropertyIdentifier()));
 						}				
 						break; 
 						case ADD: 	

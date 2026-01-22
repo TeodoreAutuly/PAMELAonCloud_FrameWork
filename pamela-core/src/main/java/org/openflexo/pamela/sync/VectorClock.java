@@ -34,6 +34,11 @@ public class VectorClock implements Serializable, Comparable<VectorClock> {
 		this.clock = new ConcurrentHashMap<>();
 	}
 
+	public VectorClock(String replicaId){
+		this.clock = new ConcurrentHashMap<>();
+		this.clock.put(replicaId, 0L);
+	}
+
 	public VectorClock(Map<String, Long> initialClock) {
 		this.clock = new ConcurrentHashMap<>(initialClock);
 	}
