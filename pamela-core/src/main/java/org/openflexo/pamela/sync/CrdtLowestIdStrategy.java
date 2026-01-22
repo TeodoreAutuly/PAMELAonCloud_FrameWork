@@ -137,7 +137,6 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 					} else {
 						value = operation.getNewValueSerialized();
 					}
-					System.out.println(operation);
 
 					Object newValue = crdtContext.valueSerializer.deserialize(						
 							value,
@@ -145,11 +144,6 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 							syncContext
 					);
 					int index = operation.getIndex();
-					System.out.println(index);
-					System.out.println(newValue);
-					//System.out.println(value);
-					//System.out.println(property.getType());
-					//System.out.println(syncContext);
 
 					switch(operation.getOperationType()){
 						case "SET":
