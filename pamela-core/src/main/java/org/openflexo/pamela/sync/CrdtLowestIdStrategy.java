@@ -5,7 +5,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 import org.openflexo.pamela.factory.ProxyMethodHandler;
 import org.openflexo.pamela.model.ModelProperty;
-import org.openflexo.pamela.sync.SyncOperation.OperationType;
+import org.openflexo.pamela.sync.SyncOperation;
 
 
 
@@ -111,7 +111,7 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 
 	@Override
 	public void applyRemoteModification(SyncOperation operation, CrdtContext crdtContext,
-			SyncEditingContext syncContext) {
+			SyncEditingContext syncContext, int index) {
 		Object target = crdtContext.identityManager.getObject(operation.getObjectId());
 		Map<String, SyncOperation> objectMap = crdtContext.propertyStateManager.getMapCrdt().get(operation.getObjectId());
 		SyncOperation lastOp = null;
@@ -121,7 +121,7 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 		if (target == null) {
 			// Object doesn't exist yet : if it has already been deleted then don't apply the modification and return 
 			// Else create the object 			
-			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.DELETE)){
+			if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.DELETE)){
 				return; 
 			}
 			target = ensureRemoteObjectExists(operation.getObjectId(), operation.getEntityType(),crdtContext);			
@@ -131,22 +131,29 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 			if (handler != null) {
 				ModelProperty<?> property = handler.getModelEntity().getModelProperty(operation.getPropertyIdentifier());
 				if (property != null) {
-					String value; 
-					if(operation.getOperationType().equals(OperationType.REMOVE)){
+					String value;
+					if(operation.getOperationType().equals(SyncOperation.REMOVE)){
 						value = operation.getOldValueSerialized(); 
+					} else {
+						value = operation.getNewValueSerialized();
 					}
-					else{value= operation.getNewValueSerialized();}
+					//System.out.println(operation);
 
 					Object newValue = crdtContext.valueSerializer.deserialize(						
 							value,
 							property.getType(),
 							syncContext
 					);
-					int index = operation.getIndex();
+					//int index = operation.getIndex();
+					//System.out.println(index);
+					//System.out.println(newValue);
+					//System.out.println(value);
+					//System.out.println(property.getType());
+					//System.out.println(syncContext);
 
 					switch(operation.getOperationType()){
-						case SET:
-						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.OperationType.SET)){
+						case "SET":
+						if (lastOp != null && lastOp.getOperationType().equals(SyncOperation.SET)){
 							//If the operation received is before the last operation in local according to the vector clock do nothing
 							//Otherwise if the operation received is concurrent to the last operation in local and the id of the replica from distant operation is higher also do nothing
 							if(operation.getVectorClock().compareTo(lastOp.getVectorClock())==-1 ||(operation.getVectorClock().compareTo(lastOp.getVectorClock())== 0 && UUID.fromString(lastOp.getReplicaId()).compareTo(UUID.fromString(operation.getReplicaId()))==-1)){
@@ -159,13 +166,13 @@ public class CrdtLowestIdStrategy implements ICrdtStrategy{
 							handler.invokeSetter(operation.getPropertyIdentifier(), newValue); 
 						}				
 						break; 
-						case ADD: 	
+						case "ADD": 	
 						handler.invokeAdder(operation.getPropertyIdentifier(), newValue);
 						break; 
-						case REMOVE: 
+						case "REMOVE": 
 						handler.invokeRemover(operation.getPropertyIdentifier(), newValue); 
 						break; 
-						case REINDEX:
+						case "REINDEX":
 						handler.invokeReindexer(operation.getPropertyIdentifier(), newValue, index);
 						default: 
 						break; 

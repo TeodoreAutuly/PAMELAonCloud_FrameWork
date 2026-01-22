@@ -126,15 +126,15 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
 		if (editClass == null || handler == null) return;
 		localEditHandlers.put(editClass, handler);
 	}
-
+ 
     private void registerDefaultHandlers() {
         // Remote handlers (inbound)
-        handlers.put(SyncOperation.SET, this::applyRemoteModification);
-        handlers.put(SyncOperation.ADD, this::applyRemoteModification);
-        handlers.put(SyncOperation.REMOVE, this::applyRemoteModification);
-		handlers.put(SyncOperation.REINDEX, this::applyRemoteModification);
-        handlers.put(SyncOperation.CREATE, this::applyRemoteCreate);
-		handlers.put(SyncOperation.DELETE, this::applyRemoteDelete);
+        handlers.put(SyncOperation.SET, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
+        handlers.put(SyncOperation.ADD, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
+        handlers.put(SyncOperation.REMOVE, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, 0));
+		handlers.put(SyncOperation.REINDEX, op -> crdtStrategy.applyRemoteModification(op, crdtContext, this, op.getIndex()));
+        handlers.put(SyncOperation.CREATE, op -> crdtStrategy.applyRemoteCreate(op, crdtContext));
+		handlers.put(SyncOperation.DELETE, op -> crdtStrategy.applyRemoteDelete(op, crdtContext));
 
 
 		 handlers.put(SyncOperation.STATE_REQUEST, operation -> {
@@ -199,7 +199,7 @@ public class SyncEditingContext extends EditingContextImpl implements SyncOperat
         .build());
 		});
     }
-
+    
 	/**
 	 * Serialize a value for sync operations.
 	 * Uses reference serialization for PAMELA proxy objects.
@@ -559,8 +559,11 @@ public <I> void broadcast(I object,ModelProperty<? super I> property,Object oldV
 				case "DELETE":
 					crdtStrategy.applyRemoteDelete(operation,crdtContext);
 					break;
-				case "SET": case "ADD": case "REMOVE": case "REINDEX":
-					crdtStrategy.applyRemoteModification(operation,crdtContext,this);
+				case "SET": case "ADD": case "REMOVE":
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this, 0);
+					break;
+				case "REINDEX":
+					crdtStrategy.applyRemoteModification(operation,crdtContext,this, operation.getIndex());
 					break;
 				default:
 					logger.warning("Unknown operation type: " + operation.getOperationType());
