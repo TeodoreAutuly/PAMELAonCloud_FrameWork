@@ -26,6 +26,8 @@ dependencies {
 
   testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.1'
   testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.1'
+  testImplementation "junit:junit:4.13.2"
+  testRuntimeOnly "org.junit.vintage:junit-vintage-engine:5.10.1"
   testImplementation 'org.mockito:mockito-core:5.11.0'
   // testImplementation 'org.mockito:mockito-inline:5.11.0'
   testImplementation 'org.mockito:mockito-junit-jupiter:5.11.0'
@@ -36,6 +38,9 @@ dependencies {
 
 test {
   useJUnitPlatform()
+  // important for tests that use a fixed port / global resources
+  maxParallelForks = 1
+  forkEvery = 0
   finalizedBy jacocoTestReport
 }
 
