@@ -14,7 +14,6 @@
 package org.openflexo.pamela.test.sync;
 
 import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
 import static org.junit.Assert.*;
 
 import java.util.ArrayList;
