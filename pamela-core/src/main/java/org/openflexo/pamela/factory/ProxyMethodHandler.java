@@ -436,6 +436,8 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 	}
 
 	private Object _invoke(Object self, Method method, Method proceed, Object[] args) throws Throwable {
+		
+		// System.out.println("_invoke " + method);
 
 		// First, we iterate on all delegate implementations to look for eventual partial implementation (in this case, prioritar)
 		for (DelegateImplementation<? super I> delegateImplementation : delegateImplementations) {
@@ -472,6 +474,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 				if (PamelaUtils.methodIsEquivalentTo(method, property.getAdderMethod())) {
 					// We have found a concrete implementation of that method as a adder call
 					// We will invoke it, but also notify UndoManager, and call setModified() after adder invoking
+					// System.out.println("DETECTS ADD with " + proceed + " instead of " + method);
 					if (getUndoManager() != null) {
 						getUndoManager().addEdit(new AddCommand<>(getObject(), getModelEntity(), property, args[0], getModelFactory(), getCurrentReplicaId()));
 					}
@@ -1496,6 +1499,7 @@ public class ProxyMethodHandler<I> extends IProxyMethodHandler implements Method
 		
 		// Broadcast sync operation if connected
 		if (trackAtomicEdit) {
+			//System.out.println("I'm attempting to make an add broadcast");
 			broadcastOperation(property, null, value, index, SyncOperation.ADD);
 		}
 	}
