@@ -1,0 +1,107 @@
+<BODY>
+  <h1>PAMELA Synchronization Package</h1>
+
+  <p>
+    This package provides real-time collaborative editing capabilities for PAMELA models
+    through message-broker transports (RabbitMQ and MQTT via Artemis). It contains
+    the synchronization layer: transport managers, operation model, serialization,
+    CRDT application logic and helper utilities for identity and property state management.
+  </p>
+
+  <h2>Overview</h2>
+  <p>
+    The synchronization stack is composed of two complementary parts:
+    <ol>
+      <li>Transport layer (implementations of <code>SyncManager</code>) which publish and consume <code>SyncOperation</code>s.</li>
+      <li>Application layer (<code>SyncEditingContext</code> and CRDT strategies) which apply received operations to the local PAMELA model and produce local operations to broadcast.</li>
+    </ol>
+  </p>
+
+  <h2>Key classes and responsibilities</h2>
+  <ul>
+    <li><b>SyncEditingContext</b>
+      <p>Main entry point for synchronized editing. It hooks into PAMELA's undo/atomic edit machinery to observe local edits and produce <code>SyncOperation</code>s. It also receives remote operations and delegates application to a CRDT strategy. Features include:</p>
+      <ul>
+        <li>Registration of local and remote handlers</li>
+        <li>Management of object identities via <code>ObjectIdentityManager</code></li>
+        <li>Buffering of operations during CREATE to ensure correct ordering</li>
+        <li>State snapshot/restore for late-joining replicas</li>
+        <li>Integration with UndoManager so remote edits are not recorded as local</li>
+      </ul>
+    </li>
+
+    <li><b>RabbitMQSyncManager</b> and <b>ArtemisMQTTSyncManager</b>
+      <p>Concrete <code>SyncManager</code> implementations. They handle connecting to the broker, publishing serialized operations and notifying listeners when messages are received. The RabbitMQ implementation uses AMQP exchanges/queues; ArtemisMQTT uses MQTT topics.</p>
+    </li>
+
+    <li><b>SyncOperation</b>
+      <p>Immutable value object representing an operation (CREATE, DELETE, SET, ADD, REMOVE, REINDEX, STATE_REQUEST, STATE_RESPONSE). Carries operation id, replica id, vector clock, target object id, property identifier and serialized values.</p>
+    </li>
+
+    <li><b>SyncOperationSerializer</b>
+      <p>Jackson-based JSON serializer/deserializer used by transport implementations to convert operations to/from wire format (bytes or text).</p>
+    </li>
+
+    <li><b>SyncValueSerializer</b>
+      <p>Helper that serializes property values. It supports reference serialization for PAMELA proxy objects (object references encoded using their UUID) and allows registering custom serializers for application-specific types.</p>
+    </li>
+
+    <li><b>ObjectIdentityManager</b>
+      <p>Maintains a global mapping between stable UUIDs and local object instances (proxy objects). Used to resolve references during restore and remote operation application.</p>
+    </li>
+
+    <li><b>VectorClock</b>
+      <p>Lightweight vector clock implementation used to track causality between operations and help CRDT decision-making.</p>
+    </li>
+
+    <li><b>PropertyStateManager</b>
+      <p>Maintains per-object property state to support CRDT algorithms and deletion propagation. It stores the last known SET/REINDEX operation per property and applies recursive deletion markers when an object is deleted.</p>
+    </li>
+
+    <li><b>CRDT strategy (CrdtLowestIdStrategy, CrdtContext, ICrdtStrategy)</b>
+      <p>Pluggable CRDT strategy used to apply remote operations in a conflict-resilient way. The default strategy (<code>CrdtLowestIdStrategy</code>) creates remote objects when needed, applies modifications, and uses simple heuristics (e.g. lowest-id tie-break) for resolution.</p>
+    </li>
+
+    <li><b>RemoteOperationHandler</b>
+      <p>Functional interface used to register handlers for specific operation types at runtime.</p>
+    </li>
+  </ul>
+
+  <h2>Common workflows</h2>
+  <h3>Local edit -> broadcast</h3>
+  <ol>
+    <li>User modifies a PAMELA object (atomic edit occurs).</li>
+    <li><code>SyncEditingContext</code> intercepts the edit via registered local handlers and builds a <code>SyncOperation</code>.</li>
+    <li>The operation is serialized with <code>SyncOperationSerializer</code> and published by the configured <code>SyncManager</code>.</li>
+  </ol>
+
+  <h3>Receiving remote operations</h3>
+  <ol>
+    <li>Transport receives a message and deserializes it into <code>SyncOperation</code>.</li>
+    <li>The transport notifies listeners (property change events) and the <code>SyncEditingContext</code> applies the operation via the configured CRDT strategy.</li>
+    <li>During application, the context marks itself as applying a remote operation to avoid re-broadcast loops and to tag resulting AtomicEdits with the remote replica id.</li>
+  </ol>
+
+  <h2>Usage example (quick)</h2>
+  <pre>
+// Setup
+SyncEditingContext context = new SyncEditingContext();
+RabbitMQSyncManager mgr = RabbitMQSyncManager.builder()
+    .host("localhost")
+    .credentials("guest","guest")
+    .exchangeName("pamela.sync")
+    .routingKey("operations")
+    .build();
+
+context.setModelFactory(new PamelaModelFactory(MyModel.class));
+context.setSyncManager(mgr);
+mgr.connect();
+
+// Create and modify an object: operations will be broadcast
+MyModel m = context.getModelFactory().newInstance(MyModel.class);
+m.setName("hello");
+  </pre>
+
+  <p>Author: PAMELAOnCloud Team</p>
+  <p>Since: 2026</p>
+</BODY>
