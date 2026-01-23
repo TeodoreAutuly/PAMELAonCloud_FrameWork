@@ -45,6 +45,10 @@ public class ArtemisEmbeddedMQTTBroker {
 	 * @param password the password to allow connections to the broker.
 	 */
     public static void startEmbeddedBroker(String username, String password) {
+        startEmbeddedBroker(username, password, 1883);
+    }
+
+    public static void startEmbeddedBroker(String username, String password, int port) {
         try {
             embeddedBroker = new EmbeddedActiveMQ();
 
@@ -56,7 +60,7 @@ public class ArtemisEmbeddedMQTTBroker {
             // By default it is localhost.
             config.addAcceptorConfiguration(
                 "mqtt",
-                "tcp://127.0.0.1:1883?protocols=MQTT;allowAnonymous=false"
+                "tcp://127.0.0.1:" + port + "?protocols=MQTT;allowAnonymous=false"
             );
 
             // ============================
@@ -96,10 +100,11 @@ public class ArtemisEmbeddedMQTTBroker {
             embeddedBroker.start();
 
             started = true;
-            logger.info("Broker started");
+            logger.info("Embedded MQTT broker started on port " + port);
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to start broker", e);
+            logger.log(Level.SEVERE, "Failed to start broker on port " + port, e);
+            throw new RuntimeException("Failed to start embedded broker on port " + port, e);
         }
     }
     
