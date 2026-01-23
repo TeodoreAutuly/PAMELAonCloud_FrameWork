@@ -153,30 +153,32 @@ public class CollaborativeDocumentSyncTestMQTT {
         syncManagerB.addListener(contextB);
         syncManagerB.addListener(new TestOperationListener(receivedOperationsB, null)); // Don't use latch yet
 
-// Give time for queues to be set up and flush any old messages
-        Thread.sleep(1000);
+// Give time for queues to be set up and flush any old messages (shortened)
+    Thread.sleep(250);
 
 // NOW clear any stale operations
         receivedOperationsB.clear();
         receivedOperationsA.clear();
 
+// Now set up the countdown latch for the operations we care about
+    // Important: install the latch BEFORE creating the document on Replica A
+    // so we don't miss the CREATE event (avoid race condition).
+    operationLatchB = new CountDownLatch(2); // CREATE + SET
+    syncManagerB.addListener(new TestOperationListener(null, operationLatchB));
+
 // ========== REPLICA A: Create document ==========
-        CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
+    CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
 
 // Get the object ID assigned to docA
-        String docId = contextA.getIdentityManager().getOrCreateObjectId(docA);
-        assertNotNull("Document should have an ID", docId);
-        System.out.println("[Replica A] Created document with ID: " + docId);
+    String docId = contextA.getIdentityManager().getOrCreateObjectId(docA);
+    assertNotNull("Document should have an ID", docId);
+    System.out.println("[Replica A] Created document with ID: " + docId);
 
 // ========== REPLICA B: Create corresponding local instance ==========
 // In a real scenario, this would be done when receiving the CREATE operation
-        CollaborativeDocument docB = factoryB.newInstance(CollaborativeDocument.class);
-        contextB.getIdentityManager().registerObject(docB, docId);
-        System.out.println("[Replica B] Registered local document with same ID: " + docId);
-
-// Now set up the countdown latch for the operations we care about
-        operationLatchB = new CountDownLatch(2); // CREATE + SET
-        syncManagerB.addListener(new TestOperationListener(null, operationLatchB));
+    CollaborativeDocument docB = factoryB.newInstance(CollaborativeDocument.class);
+    contextB.getIdentityManager().registerObject(docB, docId);
+    System.out.println("[Replica B] Registered local document with same ID: " + docId);
 
 // ========== REPLICA A: Modify the document ==========
         System.out.println("[Replica A] Setting title to 'Hello from Computer A'");
@@ -186,8 +188,8 @@ public class CollaborativeDocumentSyncTestMQTT {
         boolean received = operationLatchB.await(5, TimeUnit.SECONDS);
         assertTrue("Replica B should have received the operations", received);
 
-// Small wait to ensure all operations are processed
-        Thread.sleep(200);
+// Small wait to ensure all operations are processed (shortened)
+    Thread.sleep(100);
 
 // Verify the operation was received
         assertFalse("Replica B should have received operations", receivedOperationsB.isEmpty());
@@ -248,7 +250,7 @@ public class CollaborativeDocumentSyncTestMQTT {
         syncManagerB.addListener(contextB);
         syncManagerB.addListener(new TestOperationListener(receivedOperationsB, operationLatchB));
 
-        Thread.sleep(1000); // Increased wait time
+        Thread.sleep(250); // Shortened wait time
 
 // Create document on Replica A ONLY
         CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
@@ -256,8 +258,8 @@ public class CollaborativeDocumentSyncTestMQTT {
 
         System.out.println("[Replica A] Created document with ID: " + docId);
 
-// Wait for CREATE operation to propagate
-        Thread.sleep(500);
+// Wait for CREATE operation to propagate (shortened)
+    Thread.sleep(150);
 
 // NOW create the corresponding object on Replica B
 // This should ideally happen automatically when CREATE is received,
@@ -317,14 +319,14 @@ public class CollaborativeDocumentSyncTestMQTT {
         contextB.setSyncManager(syncManagerB);
         syncManagerB.addListener(contextB);
 
-        Thread.sleep(1000);
+        Thread.sleep(250);
 
 // ========== FIRST: Test A -> B (we know this works) ==========
         CollaborativeDocument docA = factoryA.newInstance(CollaborativeDocument.class);
         String docId = contextA.getIdentityManager().getOrCreateObjectId(docA);
         System.out.println("[Test] Created docA with ID: " + docId);
 
-        Thread.sleep(500);
+        Thread.sleep(150);
 
         CollaborativeDocument docB = factoryB.newInstance(CollaborativeDocument.class);
         contextB.getIdentityManager().registerObject(docB, docId);
@@ -358,7 +360,7 @@ public class CollaborativeDocumentSyncTestMQTT {
 // NOW try to modify docB2
         System.out.println("[Test] Setting author on docB2");
         docB2.setAuthor("User from B");
-        Thread.sleep(2000);
+        Thread.sleep(500);
 
         System.out.println("[Debug] docA2.getAuthor() = " + docA2.getAuthor());
         System.out.println("[Debug] docB2.getAuthor() = " + docB2.getAuthor());
